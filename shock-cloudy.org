@@ -1,0 +1,9 @@
+* Photoionized shock models with Cloudy
+** Previous History [2016-09-10 Sat]
++ This is an extension of Cloudy models that I did for Jane's project on the NGC 6888 Wolf-Rayet ring nebula
++ That, in turn, was a development of analytic models I had done for the LL Orionis project
+** Motivation
++ I want to understand the line ratios of the high-velocity knots seen in the Orion West region
+  + My intuition is that shocked gas should have higher [N II]/Ha and [O III]/Ha than equilibrium photoionized gas (higher temperature in the cooling zone, leading to enhanced collisional lines).
+  + But Alba's observations only show this signature for one knot. Most of the others show reduced [N II]/Ha compared with the adjoining nebula, even though the density is higher (indicating lower ionization parameter if the flux is similar)
+  + This is hard to understand, but might possibly reslut from the cooling gas being more ionized than the equilibrium nebula, despite the higher density
