@@ -6,4 +6,67 @@
 + I want to understand the line ratios of the high-velocity knots seen in the Orion West region
   + My intuition is that shocked gas should have higher [N II]/Ha and [O III]/Ha than equilibrium photoionized gas (higher temperature in the cooling zone, leading to enhanced collisional lines).
   + But Alba's observations only show this signature for one knot. Most of the others show reduced [N II]/Ha compared with the adjoining nebula, even though the density is higher (indicating lower ionization parameter if the flux is similar)
-  + This is hard to understand, but might possibly reslut from the cooling gas being more ionized than the equilibrium nebula, despite the higher density
+  + This is hard to understand, but might possibly result from the cooling gas being more ionized than the equilibrium nebula, despite the higher density
+
+
+* Shock jump conditions
+Once again we copy the table from llobjects.org
+#+TBLNAME: post-shock-quantities
+|   |     M0 |    M1 | n1/n0 |   T1/T0 |   n2/n0 | v1/c0 | v2/c0 |   h/R | delta |   n3/n0 |      dcfac |
+| ! |     M0 |    M1 | n1/n0 |   T1/T0 |   n2/n0 | v1/c0 |    M2 |   h/R | delta |   n3/n0 |      dcfac |
+|---+--------+-------+-------+---------+---------+-------+-------+-------+-------+---------+------------|
+| # |   1.01 | 0.990 | 1.015 |   1.010 |   1.020 | 0.995 | 0.990 | 0.277 | 0.490 |   1.520 |  65.009614 |
+| # |    1.1 | 0.913 | 1.150 |   1.098 |   1.210 | 0.957 | 0.909 | 0.249 | 0.413 |   1.710 |  6.5131174 |
+| # |    1.2 | 0.846 | 1.297 |   1.195 |   1.440 | 0.925 | 0.833 | 0.223 | 0.347 |   1.940 |  3.2648273 |
+| # |    1.3 | 0.793 | 1.441 |   1.292 |   1.690 | 0.902 | 0.769 | 0.201 | 0.296 |   2.190 |  2.2066838 |
+| # |    1.4 | 0.751 | 1.581 |   1.392 |   1.960 | 0.886 | 0.714 | 0.183 | 0.255 |   2.460 |  1.6836548 |
+| # |    1.5 | 0.716 | 1.714 |   1.495 |   2.250 | 0.875 | 0.667 | 0.167 | 0.222 |   2.750 |  1.3793454 |
+| # |   1.75 | 0.651 | 2.021 |   1.771 |   3.063 | 0.866 | 0.571 | 0.135 | 0.163 |   3.562 | 0.99266615 |
+| # |    2.0 | 0.607 | 2.286 |   2.078 |   4.000 | 0.875 | 0.500 | 0.112 | 0.125 |   4.500 | 0.81763300 |
+| # |    2.5 | 0.553 | 2.703 |   2.798 |   6.250 | 0.925 | 0.400 | 0.081 | 0.080 |   6.750 | 0.66908037 |
+| # |    3.0 | 0.522 | 3.000 |   3.667 |   9.000 | 1.000 | 0.333 | 0.061 | 0.055 |   9.495 | 0.61547510 |
+| # |    3.5 | 0.503 | 3.213 |   4.688 |  12.250 | 1.089 | 0.286 | 0.048 | 0.041 |  12.752 | 0.59706849 |
+| # |    4.0 | 0.490 | 3.368 |   5.863 |  16.000 | 1.188 | 0.250 | 0.038 | 0.031 |  16.496 | 0.59396864 |
+| # |    4.5 | 0.482 | 3.484 |   7.194 |  20.250 | 1.292 | 0.222 | 0.031 | 0.025 |  20.756 | 0.59832061 |
+| # |      5 | 0.475 | 3.571 |   8.680 |      25 | 1.400 | 0.200 | 0.026 | 0.020 |  25.500 | 0.60649545 |
+| # |    5.5 | 0.470 | 3.639 |  10.322 |  30.250 | 1.511 | 0.182 | 0.022 | 0.017 |  30.764 | 0.61724921 |
+| # |      6 | 0.467 | 3.692 |  12.120 |      36 | 1.625 | 0.167 | 0.019 | 0.014 |  36.504 | 0.78990383 |
+| # |    6.5 | 0.464 | 3.735 |  14.074 |  42.250 | 1.740 | 0.154 | 0.016 | 0.012 |  42.757 |  1.3213623 |
+| # |      7 | 0.462 | 3.769 |  16.184 |      49 | 1.857 | 0.143 | 0.014 | 0.010 |  49.490 |  2.1404393 |
+| # |      8 | 0.458 | 3.821 |  20.872 |      64 | 2.094 | 0.125 | 0.011 | 0.008 |  64.512 |  5.1698640 |
+| # |      9 | 0.456 | 3.857 |  26.185 |      81 | 2.333 | 0.111 | 0.009 | 0.006 |  81.486 |  11.364212 |
+| # |     10 | 0.454 | 3.883 |  32.123 |     100 | 2.575 | 0.100 | 0.007 | 0.005 | 100.500 |  23.171930 |
+| # |     12 | 0.452 | 3.918 |  45.874 |     144 | 3.063 | 0.083 | 0.005 | 0.003 | 144.432 |  80.435950 |
+| # |     15 | 0.450 | 3.947 |  71.187 |     225 | 3.800 | 0.067 | 0.003 | 0.002 | 225.450 |  375.55751 |
+| # |   20.0 | 0.449 | 3.970 | 125.875 | 400.000 | 5.038 | 0.050 | 0.002 | 0.001 | 400.400 |  2801.1414 |
+| # | 22.334 | 0.449 | 3.976 | 156.752 | 498.808 | 5.617 | 0.045 | 0.001 | 0.001 | 499.307 |  6095.8903 |
+#+TBLFM: $3=sqrt(($M0**2 + 3) / (5 $M0**2 - 1)) ; f3::$4=4 / (1 + 3/$M0**2) ; f3::$5=(1/16) (5 $M0**2 - 1) (1 + (3/$M0**2)) ; f3::$6=$M0**2 ; f3::$7=$M0/$4;f3::$8=$M0 /$6 ; f3::$9=(3 / 4 $M0**2) (2 / (1 + sqrt(1 + (18/$M0**2)) )) ; f3::$10=0.5 $8**2 ; f3::$11=(1 + $delta) $6 ; f3::$12=$7 $5 $11 / $4 (min(3000/$5, $5**2.3) - 1)
+
+
+** Mach number in the post-shock flow
++ So the Mach number immediately after the shock is given by:
+  + \(M_1 = \left( \frac{M_{0}^{2} + 3}{5 M_{0}^{2} - 1} \right)^{1/2}\)
+  + Which is about 1/M_0 for M_0 ~= 1
+  + And goes to the limit 1/5^{1/2} = 0.4472 for high M_0
++ Whereas the Mach number after the cooling zone is
+  + \(M_{2} = 1/M_{0}\)
++ Hence we will have Mach numbers of order 0.5 in the cooling zone
+  + So it may be worth doing the higher order expansion in M^2
+
+
+
+* New Cloudy shock models
+
+** Constant pressure or constant density?
++ The models that I ran before were constant density, it seems
+  + The density was set at immediate post-shock value of n_1
+  + I calculated the true density in post-processing
+  + The density increase in the cooling zone varies from a factor of about 1.3 (M = 1.5) up to about 10 (M = 6)
++ One problem with this is that the time variable needs to be transformed, I think
+  + But I map on to distance by using the integral of the cooling rate
+  + And that correctly takes into account the density increase
+    + albeit in the approximation of constant pressure in the cooling zone
+  + So all should be good
++ Note that what this doesn't do is get the time-variation of ionization parameter correct.  
+** 
+
