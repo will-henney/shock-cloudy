@@ -2,12 +2,529 @@
 ** Previous History [2016-09-10 Sat]
 + This is an extension of Cloudy models that I did for Jane's project on the NGC 6888 Wolf-Rayet ring nebula
 + That, in turn, was a development of analytic models I had done for the LL Orionis project
-** Motivation
+** Original Motivation
 + I want to understand the line ratios of the high-velocity knots seen in the Orion West region
   + My intuition is that shocked gas should have higher [N II]/Ha and [O III]/Ha than equilibrium photoionized gas (higher temperature in the cooling zone, leading to enhanced collisional lines).
   + But Alba's observations only show this signature for one knot. Most of the others show reduced [N II]/Ha compared with the adjoining nebula, even though the density is higher (indicating lower ionization parameter if the flux is similar)
   + This is hard to understand, but might possibly result from the cooling gas being more ionized than the equilibrium nebula, despite the higher density
+** New re-purposing 2020 [2020-11-15 Sun]
++ Now I am going to use this to look at the HH shocks for the project with Tenerife
++ First thing to do is to repeat the same models that I ran for the WR case, except to use Orion abundances and include some slower shocks
+* Fake the cooling zone via Cloudy time-dependent models 
+:PROPERTIES:
+:header-args: :noweb yes
+:END:
+** Calculate table of cooling lengths from real cooling function
++ We will use an old cooling function from
+  + /Users/will/Work/JaneCool/coolfunc-photo-tstar039-phi12.00-orion-n3.00.dat
+  + [[file:~/Work/JaneCool/coolfunc-photo-tstar039-phi12.00-orion-n3.00.dat]]
+#+name: cool-read-func
+#+BEGIN_SRC python
+  from pathlib import Path
 
+  def get_cooltable():
+      cooldir = Path("../../Work/JaneCool")
+      coolfile = "coolfunc-photo-tstar039-phi12.00-orion-n3.00.dat"
+      with open(cooldir / coolfile) as f:
+        names = f.readlines()[0][2:].split("\t")
+      return Table.read(cooldir / coolfile, names=names,
+                        format='ascii.no_header', delimiter='\t')
+#+END_SRC
+
+#+RESULTS: cool-read-func
+: None
+
+
+#+begin_src python :return figfile :results file
+  from astropy.table import Table
+  from matplotlib import pyplot as plt
+  import seaborn as sns
+
+  <<cool-read-func>>
+
+  tab = get_cooltable()
+  figfile = "orion-coolfunc-test.pdf"
+  fig, ax = plt.subplots()
+  xcol, ycol = "Temperature", "Lambda (erg cm3/s)"
+  ax.plot(xcol, ycol, data=tab)
+  ax.set(
+      xscale="log",
+      yscale="log",
+      xlabel=xcol,
+      ylabel=ycol,
+  )
+  sns.despine()
+  fig.tight_layout()
+  fig.savefig(figfile)
+#+end_src
+
+#+RESULTS:
+[[file:orion-coolfunc-test.pdf]]
+
++ To start with we will assume that T_0 = T_2 and n_2 = 10000 pcc
++ Total particle density = n(H) + n(He) + n(e) = n(H) [(1 + yHe) + xH + yHe (xHe+ + 2 xHe++)]
++ Mass density = \rho = m_p [n(H) + 4 n(He)] = (1 + 4 yHe) m_p n(H)
+  + or (1 + 3 yHe) m_p n_nuc
++ Now assume xHe++ = 0
+  + n_tot = ((1 + xH) + yHe (1 + xHe)) n(H) => P = ((1 + xH) + yHe (1 + xHe)) n(H) k T
+  + c^2 = P / \rho = ((1 + xH) + yHe (1 + xHe)) k T / (1 + 4 yHe) m_p 
+#+name: cooling-zone-models
+#+BEGIN_SRC python :return outtab
+  import os
+  import numpy as np
+  from scipy import interpolate
+  from astropy.table import Table
+
+  k = 1.3806503e-16                         # Boltzmann's constant [cgs]
+  mp = 1.67262158e-24                       # Proton rest mass [cgs]
+  yHe = 0.087                               # He/H abundance
+  xHeplus = 1.0                             # He is all singly ionized
+  xH = 1.0                                  # H is all ionized
+  mu = 1.0 + 3.0*yHe                        # Mean mass per nucleon
+  gamma = 5./3.                             # adiabatic index
+  yr = 3.15576e7                            # Year in seconds
+  pc = 3.085677582e18                       # Parsec in cm
+
+  <<cool-read-func>>
+
+  tab = get_cooltable()
+
+  fLambda = interpolate.interp1d(tab['Temperature'], tab['Lambda (erg cm3/s)'])
+
+  # Density of equilibrium shocked shell n2 = M^2 n0
+  n2 = 1.0e4
+
+  # Equilibrium photoionized temperature before shock
+  T0 = 8500.0
+  # pre-shock adiabatic sound speed
+  c0 = np.sqrt(gamma*(1 + xH + yHe*(1 + xHeplus))*k*T0/((1 + 4*yHe)*mp)) 
+
+  # Equilibrium photoionized temperature in cool shell
+  T2 = T0                         
+
+  outtab = [['M0', 'Ushock, km/s', 'v1, km/s', 'n0', 'n1', 'n2', 'T1', 'dcool, pc', 'tcool, yr'], None]
+
+  for n0 in np.array([4.0, 3.0, 2.0, 1.5, 1.0, 0.75, 0.5, 0.3, 0.2, 0.1, 0.05])*1000:
+      # Mach number
+      M0 = np.sqrt(n2/n0/gamma)
+      # Immediate post-shock density
+      n1 = n0 * 4.0 / (1.0 + 3.0/M0**2)
+      # Immediate post-shock temperature
+      T1 = T0 * (1./16.) * (5*M0**2 - 1.) * (1. + (3/M0**2))
+      # Immediate post-shock cooling coefficient
+      Lambda1 = fLambda(T1)
+      # Immediate post shock velocity (by continuity: M0 c0 n0 = v1 n1)
+      v1 = M0*c0*n0/n1
+      # Immediate post-shock pressure
+      P1 = (1 + xH + yHe*(1 + xHeplus))*n1*k*T1
+      # Immediate post-shock radiative energy loss per volume
+      L1 = Lambda1*n1**2
+      # Finally the cooling distance
+      tcool = P1/((gamma - 1.)*L1)
+      dcool = v1*tcool
+
+      outtab.append(['{:.3g}'.format(x) for x in [M0, M0*c0/1e5, v1/1e5, n0, n1, n2, T1, dcool/pc, tcool/yr]])
+
+#+END_SRC
+
+#+RESULTS: cooling-zone-models
+|   M0 | Ushock, km/s | v1, km/s |      n0 |       n1 |    n2 |       T1 | dcool, pc | tcool, yr |
+|------+--------------+----------+---------+----------+-------+----------+-----------+-----------|
+| 1.22 |         16.8 |     12.6 |   4e+03 | 5.33e+03 | 1e+04 | 1.04e+04 |  8.23e-05 |      6.38 |
+| 1.41 |         19.4 |     12.1 |   3e+03 |  4.8e+03 | 1e+04 |  1.2e+04 |  7.89e-05 |      6.35 |
+| 1.73 |         23.8 |     11.9 |   2e+03 |    4e+03 | 1e+04 | 1.49e+04 |  7.57e-05 |      6.22 |
+|    2 |         27.5 |       12 | 1.5e+03 | 3.43e+03 | 1e+04 | 1.77e+04 |  7.37e-05 |         6 |
+| 2.45 |         33.6 |     12.6 |   1e+03 | 2.67e+03 | 1e+04 | 2.31e+04 |  7.15e-05 |      5.54 |
+| 2.83 |         38.8 |     13.4 |     750 | 2.18e+03 | 1e+04 | 2.85e+04 |  6.96e-05 |       5.1 |
+| 3.46 |         47.6 |     14.9 |     500 |  1.6e+03 | 1e+04 | 3.92e+04 |  7.01e-05 |      4.61 |
+| 4.47 |         61.4 |     17.7 |     300 | 1.04e+03 | 1e+04 | 6.05e+04 |  7.28e-05 |      4.03 |
+| 5.48 |         75.2 |     20.7 |     200 |      727 | 1e+04 | 8.71e+04 |  9.65e-05 |      4.56 |
+| 7.75 |          106 |     27.9 |     100 |      381 | 1e+04 | 1.67e+05 |  0.000523 |      18.3 |
+|   11 |          150 |     38.5 |      50 |      195 | 1e+04 | 3.26e+05 |   0.00561 |       142 |
+
++ So this is slightly different from the WR models in that we have lower Mach numbers: 1.2 to 11 to better cover the possibilities in HH objects
++ The cooling length hardly changes up to 75 km/s, then suddenly starts to get large
+
+** Cloudy shock model runs
+This is based on the WR ones, but with changes to the radiation field, densities, and abundances.
+
+*** The templates for Cloudy input files
++ Parameter that need to be sent to ~cloudy_input~
+  + ~hden~ = 1e4
+  + ~logRadius~ = 17.5
+    + 40 arcsec from Trapezium = 40 410 1.49597870691e13 = 2.453e+17
+    + But could be larger by factor of two or so
++ Blends from the Cloudy config file
+  + 1909 - C III
+  + 1176 - C III
+  + 1549 - C IV
+  + 1666 - O III
+  + 835 - O III - high and constant
+  + 1402 - O IV
+  + 789 - O IV
+  + 1750 - N III
+  + 990 - N III - high and constant
+  + 1486 - N IV
+  + 4725 - Ar IV
++ Some things to check on later
+  + [ ] We have ~no grain physics~ presumably to speed things up.  But this may effect the cooling
+
+    
+
+#+name: templates-for-shock-models
+#+BEGIN_SRC python :results output silent
+  cloudy_input = """title Non-equilibrium shock heat/cool curve (Orion HH)
+  constant density 
+  hden {hden:.2f} linear
+  radius {logRadius:.2f}
+  no grain physics
+  print line faint 2 log 
+  print line cumulative
+  print ages
+  set save hash "return"
+  set save flush
+  save time dependent ".tim" no hash
+  save overview file=".ovr" no hash
+  save heat file=".heat" no hash
+  save cool file=".cool" no hash
+  save lines, emissivity file=".ems" no hash
+  O  3 5006.84A
+  O  3 4363.21A
+  H  1 6562.85A
+  BLND 4725
+  BLND 1909
+  BLND 1176
+  BLND 1549
+  BLND 1666 
+  BLND 835
+  BLND 789
+  BLND 1402
+  BLND 1750
+  BLND 990
+  BLND 1486
+  end of lines
+  save continuum units Angstroms ".con"
+  save element carbon file=".C" no hash
+  save element nitrogen file=".N" no hash
+  save element oxygen file=".O" no hash
+  save element iron file=".Fe" no hash
+  """
+
+  shock_input = """set dr 0
+  set nend 1
+  stop zone 1
+  set dynamics relax 2
+  iterate 200
+  hextra {logExtraHeat:.2f} time
+  # stop time when temperature falls below 1e4 K
+  time first timestep 4.0 stop at 13.0
+  time 0 scale 0
+  time 3.9 scale 0
+  time 4 scale 20 ionization
+  time 5.04 scale 20    
+  time 5.0414 scale 0    
+  time 9 scale 0  recombination
+  time 20 scale 0  
+  end of times
+  """
+
+  orion_abundances_input = """# Orion nebula abundances
+  abundances hii region no grains
+  grains orion no qheat
+  """
+
+  trapezium_radiation_input = """# Total trapezium SED from POWR OB models
+  table SED "trapezium_powr_fine_fuv.sed"
+  luminosity total 38.89
+  # Add 1 L_sun of 1e6 K x-rays
+  brems 6
+  luminosity total 33.6
+  # And general Milky Way backgrounds
+  cmb
+  table ism
+  cosmic rays, background
+  """
+
+#+END_SRC
+
+*** Running the models
+
+#+header: :var models=cooling-zone-models
+#+BEGIN_SRC python :results output
+  import numpy as np
+  from pathlib import Path
+
+  <<templates-for-shock-models>>
+
+  # Shock heating time in seconds
+  theat = 1e5
+
+  mp = 1.67262158e-24                       # Proton rest mass [cgs]
+  yHe = 0.087                               # He/H abundance
+  km = 1.e5                                 # kilometer in cm
+
+  logRadius = 17.5                     # log10 Radius, cm
+
+  for row in models:
+      M0, u0, v1, n0, n1, N2, T1, dcool, tcool = [float(x) for x in row]
+      model_id = f'trap-shock-R{int(10*logRadius):d}-shock-v{u0:03.0f}'
+
+      # Energy flux dissipated in shock
+      dE0 = 0.5*mp*(1.0 + 4.0*yHe)*km**3 * (n0*u0**3 - n1*v1**3)
+      dE0 *= N2/n1
+
+      # erg/cm3/s
+      extra_heat = dE0/(v1*km*theat)
+
+      with open(Path("models") / f'{model_id}.in', 'w') as f:
+          f.write(cloudy_input.format(hden=N2, logRadius=logRadius))
+          f.write(orion_abundances_input)
+          f.write(shock_input.format(logExtraHeat=np.log10(extra_heat)-20))
+          f.write(trapezium_radiation_input)
+
+      print(model_id, u0, T1, extra_heat)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+trap-shock-R175-shock-v017 16.8 10400.0 1.394037891275361e-13
+trap-shock-R175-shock-v019 19.4 12000.0 2.6011005869549054e-13
+trap-shock-R175-shock-v024 23.8 14900.0 4.789308026103636e-13
+trap-shock-R175-shock-v028 27.5 17700.0 6.920823568095493e-13
+trap-shock-R175-shock-v034 33.6 23100.0 1.0921630801100276e-12
+trap-shock-R175-shock-v039 38.8 28500.0 1.4882198127675703e-12
+trap-shock-R175-shock-v048 47.6 39200.0 2.299729584428703e-12
+trap-shock-R175-shock-v061 61.4 60500.0 3.8996369331243026e-12
+trap-shock-R175-shock-v075 75.2 87100.0 5.888364852263664e-12
+trap-shock-R175-shock-v106 106.0 167000.0 1.1753702506105108e-11
+trap-shock-R175-shock-v150 150.0 326000.0 2.3668956285297927e-11
+#+end_example
+
+
+
+** Plotting the Cloudy shock models
+
+#+name: cooling-shock-table
+#+header: :var models=cooling-zone-models
+#+BEGIN_SRC python :results file :return pltfile :tangle trap-multi-shock-plot.py
+  import os
+  from pathlib import Path
+  import numpy as np
+  from scipy import interpolate, optimize, integrate
+  from astropy.table import Table
+  from matplotlib import pyplot as plt
+  import seaborn as sns
+  import sys
+  sys.path.append('/Users/will/Work/CLOUDY/claudia/')
+  from claudia import CloudyModel
+
+  CloudyModel.skipsaves.append('continuum')
+  CloudyModel.skipsaves.remove(".tim")
+
+
+  k = 1.3806503e-16                         # Boltzmann's constant [cgs]
+  mp = 1.67262158e-24                       # Proton rest mass [cgs]
+  yHe = 0.087                              # He/H abundance
+  xHeplus = 1.0                             # He is all singly ionized
+  xH = 1.0                                  # H is all ionized
+  mu = 1.0 + 3.0*yHe                        # Mean mass per nucleon
+  gamma = 5./3.                             # adiabatic index
+  yr = 3.15576e7                            # Year in seconds
+  pc = 3.085677582e18                       # Parsec in cm
+  km = 1e5
+
+  logRadius = 17.5                     # log10 Radius, cm
+
+  # Set up graph for temperature and density
+  pltfile = 'trap-multi-shock-distance.pdf'
+  fig, (axtop, axbot) = plt.subplots(2, 1, sharex=True)
+
+  pltfile_em = pltfile.replace('distance', 'em-distance')
+  fig_em, axes_em = plt.subplots(9, 1, sharex=True)
+  fig_em.set_size_inches(10, 27)
+  ax6563, ax5007, ax4363, axO3Ha, axLcool, ax5007frac, axOcharge, axTagain, axNagain = axes_em
+
+  pltfile_em2 = pltfile.replace('distance', 'em2-distance')
+  fig_em2, (ax6563_2, ax5007_2) = plt.subplots(2, 1, sharex=True)
+
+  pltfile_emcum = pltfile.replace('distance', 'emcum')
+  fig_cum, [
+      ax5007_cum,
+      ax4363_cum,
+      axLc_cum,
+      axO3frac_cum,
+      axOcharge_cum,
+      axs_cum,
+      axden_cum,
+      axT_cum,
+  ] = plt.subplots(8, 1, sharex=True, figsize=(6, 16))
+
+  # Loop over all the shock velocities
+  colors = sns.dark_palette('orange', len(models[:-1]))
+  for row, c in reversed(list(zip(models[:-1], colors))):
+      M0, u0, v1, n0, n1, N2, T1, dcool, tcool = [float(x) for x in row]
+      model_id = f'trap-shock-R{int(10*logRadius):d}-shock-v{u0:03.0f}'
+      label = 'Vs = {:.0f} km/s'.format(u0)
+
+      try:
+          m = CloudyModel(str(Path("models") / model_id), niter=0)
+      except:
+          print('Failed to read', model_id)
+          continue
+      # Net cooling coefficient for all times
+      NeNp = m.ovr.HII*m.ovr.hden*m.ovr.eden
+      Lambda_full = (m.cool.Ctot_ergcm3s - m.cool.Htot_ergcm3s)/NeNp
+      # index corresponding to initial post-shock state
+      # Heuristic is that it is point where net cooling is highest
+      istart = np.argmax(Lambda_full)
+      # And corresponding T, which should be more or less T1
+      Tstart = m.cool.Temp_K[istart]
+      # Photoionization equilibrium T
+      Teq = m.cool.Temp_K.min()
+      print(istart, Teq, Tstart)
+      # Now restrict to the post-shock zone
+      T_grid = m.cool.Temp_K[istart:]
+      Lambda_grid = Lambda_full[istart:]
+      integrand_grid = T_grid**2 / Lambda_grid
+      integral_grid = integrate.cumtrapz(integrand_grid, T_grid, initial=0.0)
+      T = T_grid
+      s = (2./3.)*(Lambda_grid[0]/Tstart**3)*(integral_grid[0] - integral_grid)
+
+      # We need to recalculate tcool and dcool because the Lambda(T1) is
+      # now very different - it is much higher because of the under-ionization
+      Lambda1 = Lambda_grid[0]
+      Pressure = (m.ovr.hden*(1.0 + yHe) + m.ovr.eden)*k*m.cool.Temp_K
+      Pressure *= n1/N2
+      NeNp *= (n1/N2)**2
+      P1 = Pressure[istart]
+      L1 = Lambda1*NeNp[istart]
+      # Cooling time in seconds
+      tcool = P1/((gamma - 1.)*L1)
+      # Cooling distance in parsecs
+      dcool = v1*km*tcool/pc
+
+      x = np.hstack([[-0.05, 0.0], dcool*s]) 
+      axtop.semilogy(x, np.hstack([[Teq, Teq], T]), color=c)
+      den = n1*Tstart/T
+      axbot.semilogy(x, np.hstack([[n0, n0], den]), label=label, color=c)
+
+      # And plot the emissivities too
+      Lcool = m.cool.Ctot_ergcm3s[istart:]*(den/N2)**2
+      em5007 = (m.ems.O__3_500684A[istart:])*(den/N2)**2 
+      em4363 = (m.ems.O__3_436321A[istart:])*(den/N2)**2 
+      em6563 = (m.ems.H__1_656285A[istart:])*(den/N2)**2 
+      Ostack = np.vstack([m.ovr["O"+j] for j in "123456"])
+      O789 = 1.0 - Ostack.sum(axis=0)
+      Ostack = np.vstack([m.ovr["O"+j] for j in "123456"] + [O789])
+      Ocharge = np.sum(Ostack*np.arange(7)[:, None], axis=0)[istart:]
+      istop = np.nanargmax(s[T > 1.01*Teq])
+      ss = s/s[istop]
+
+      # Fractional cumulative emissivity of [O III]
+      cumem = integrate.cumtrapz(em5007, s*dcool, initial=0.0)
+      tot5007 = cumem[istop]
+      cumem = tot5007 - cumem
+      #cumem /= cumem[istop]
+
+      T0 = np.average(T[:istop], weights=em5007[:istop])
+      t2 = np.average(((T[:istop]-T0)/T0)**2, weights=em5007[:istop])
+      tlabel = f"{label} $T = {T0/1e3:.1f}$ kK, $t^2 = {t2:.3f}$"
+
+      ax5007.plot(ss, em5007, color=c)
+      ax6563.plot(ss, em6563, color=c)
+      ax5007_2.plot(ss, em5007, label=label, color=c)
+      ax6563_2.plot(ss, em6563, color=c)
+      ax4363.plot(ss, em4363/em5007, label=label, color=c)
+      axO3Ha.plot(ss, em5007/em6563, color=c)
+      axLcool.plot(ss, Lcool, color=c)
+      ax5007frac.plot(ss, em5007/Lcool, color=c)
+      axOcharge.plot(ss, Ocharge, color=c)
+      axTagain.plot(ss, T, color=c)
+      axNagain.plot(ss, den, color=c)
+
+      xx = dcool*(s[istop]-s)
+      ax5007_cum.plot(xx, em5007, label=tlabel, color=c)
+      ax4363_cum.plot(xx, em4363/em5007, color=c)
+      axLc_cum.plot(xx, Lcool, color=c)
+      axO3frac_cum.plot(xx, em5007/Lcool, color=c)
+      axOcharge_cum.plot(xx, Ocharge, color=c)
+      axs_cum.plot(xx, cumem, color=c)
+      axden_cum.plot(xx, den, color=c)
+      axT_cum.plot(xx, T, color=c)
+
+
+  axtop.set_ylim(5000, 0.5e6)
+  axbot.set_ylim(30.0, 2e4)
+  axbot.set_xlim(-1.1e-5, 9e-5)
+  axbot.set_xlabel('Distance, pc')
+  axbot.set_ylabel('Density, pcc')
+  axtop.set_ylabel('Temperature, K')
+  axbot.legend(ncol=2, fontsize='x-small', loc='upper left')
+  fig.savefig(pltfile)
+
+  axes_em[-1].set_xlabel('Fraction of total cooling distance')
+  ax6563.set_ylabel('Hα 6563 emissivity')
+  ax4363.legend(ncol=2, fontsize='x-small', loc='lower left')
+  ax4363.set_ylabel('[O III] 4363/5007 ratio')
+  axO3Ha.set_ylabel('[O III] 5007/Hα ratio')
+  ax5007.set_ylabel('[O III] 5007 emissivity')
+  axLcool.set_ylabel('Total cooling, erg/cm³/s')
+  axTagain.set_ylabel('Temperature, K')
+  axNagain.set_ylabel('Total Hydrogen density, /cm³')
+  ax5007frac.set_ylabel('[O III] 5007 fraction of cooling')
+  axOcharge.set_ylabel('Mean charge of Oxygen')
+  for ax in axes_em:
+      ax.set_xscale('linear')
+      ax.set_yscale('log')
+      ax.set_xlim(0.0, 1.2)
+  #ax5007.set_ylim(3e-25, 1.5e-20)
+  #axO3Ha.set_ylim(0.1, 150)
+  axOcharge.set_yscale('linear')
+  axOcharge.set_ylim(0.0, 8.0)
+  for ax in axLcool, ax4363, ax5007, ax6563, axNagain, axTagain, ax5007frac, axO3Ha:
+      ax.set_yscale('linear')
+      ax.set_ylim(0.0, None)
+  axO3Ha.set_ylim(0.0, 40.0)
+
+
+
+  fig_em.tight_layout()
+  fig_em.savefig(pltfile_em)
+
+
+  ax5007_2.set_ylim(0.0, None)
+  ax6563_2.set_ylim(0.0, None)
+  ax5007_2.set_xlabel('Fraction of total cooling distance')
+  ax5007_2.set_ylabel('[O III] 5007 emissivity')
+  ax6563_2.set_ylabel('Hα 6563 emissivity')
+  ax5007_2.set_xlim(0.0, 1.2)
+  ax5007_2.legend(ncol=2, fontsize='x-small', loc='upper left')
+  fig_em2.savefig(pltfile_em2)
+
+  ax5007_cum.set_xlim(-1e-5, 6.5e-5)
+  ax5007_cum.set_ylim(0.0, None)
+  ax4363_cum.set_ylim(0.0, None)
+  axLc_cum.set_ylim(0.0, None)
+  axOcharge_cum.set_ylim(1.9, 3.1)
+  axs_cum.set_ylim(0.0, None)
+  axT_cum.set_ylim(0.0, 15e4)
+  ax5007_cum.legend(ncol=2, fontsize='x-small', loc='lower right')
+  axT_cum.set_xlabel("Distance from equilibrium shell")
+  ax5007_cum.set_ylabel('[O III] 5007')
+  ax4363_cum.set_ylabel('[O III] 4363 / 5007')
+  axden_cum.set_ylabel('Density, pcc')
+  axT_cum.set_ylabel('Temperature, K')
+  axLc_cum.set_ylabel("Cooling, erg/cm³/s")
+  axO3frac_cum.set_ylabel("5007 cool frac")
+  axOcharge_cum.set_ylabel('Mean O charge')
+  axs_cum.set_ylabel('Cumulative 5007')
+  fig_cum.tight_layout()
+  fig_cum.savefig(pltfile_emcum)
+
+#+END_SRC
+
+#+RESULTS: cooling-shock-table
+[[file:trap-multi-shock-distance.pdf]]
 
 * Shock jump conditions
 Once again we copy the table from llobjects.org
