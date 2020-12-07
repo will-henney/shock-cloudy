@@ -115,7 +115,7 @@ for row, c in reversed(list(zip(models[:-1], colors))):
     # Fractional cumulative emissivity of [O III]
     cumem = integrate.cumtrapz(em5007, s*dcool, initial=0.0)
     tot5007 = cumem[istop]
-    cumem = tot5007 - cumem
+    #cumem = tot5007 - cumem
     #cumem /= cumem[istop]
 
     T0 = np.average(T[:istop], weights=em5007[:istop])
@@ -134,8 +134,8 @@ for row, c in reversed(list(zip(models[:-1], colors))):
     axTagain.plot(ss, T, color=c)
     axNagain.plot(ss, den, color=c)
 
-    xx = dcool*(s[istop]-s)
-    ax5007_cum.plot(xx, em5007, label=tlabel, color=c)
+    xx = -dcool*(s[istop]-s) * 1000.0 # In mpc
+    ax5007_cum.plot(xx, em4363, label=tlabel, color=c)
     ax4363_cum.plot(xx, em4363/em5007, color=c)
     axLc_cum.plot(xx, Lcool, color=c)
     axO3frac_cum.plot(xx, em5007/Lcool, color=c)
@@ -193,16 +193,22 @@ ax5007_2.set_xlim(0.0, 1.2)
 ax5007_2.legend(ncol=2, fontsize='x-small', loc='upper left')
 fig_em2.savefig(pltfile_em2)
 
-ax5007_cum.set_xlim(-1e-5, 6.5e-5)
+ax5007_cum.set_xlim(-6.5e-2, 2e-2)
 ax5007_cum.set_ylim(0.0, None)
 ax4363_cum.set_ylim(0.0, None)
 axLc_cum.set_ylim(0.0, None)
-axOcharge_cum.set_ylim(1.9, 3.1)
+axOcharge_cum.set_ylim(1.5, 3.5)
 axs_cum.set_ylim(0.0, None)
-axT_cum.set_ylim(0.0, 15e4)
-ax5007_cum.legend(ncol=2, fontsize='x-small', loc='lower right')
-axT_cum.set_xlabel("Distance from equilibrium shell")
-ax5007_cum.set_ylabel('[O III] 5007')
+axT_cum.set_ylim(5000, 5e5)
+axT_cum.set_yscale("log")
+fig_cum.legend(
+    ncol=2,
+    fontsize='x-small',
+    bbox_to_anchor=(1.0, 1.0),
+    # loc='lower right',
+).set_in_layout(False)
+axT_cum.set_xlabel("Distance from equilibrium shell, mpc")
+ax5007_cum.set_ylabel('[O III] 4363')
 ax4363_cum.set_ylabel('[O III] 4363 / 5007')
 axden_cum.set_ylabel('Density, pcc')
 axT_cum.set_ylabel('Temperature, K')
@@ -210,5 +216,5 @@ axLc_cum.set_ylabel("Cooling, erg/cm³/s")
 axO3frac_cum.set_ylabel("5007 cool frac")
 axOcharge_cum.set_ylabel('Mean O charge')
 axs_cum.set_ylabel('Cumulative 5007')
-fig_cum.tight_layout()
+fig_cum.tight_layout(rect=(0, 0, 1, 0.95))
 fig_cum.savefig(pltfile_emcum)

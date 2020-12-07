@@ -144,10 +144,490 @@
 
 + So this is slightly different from the WR models in that we have lower Mach numbers: 1.2 to 11 to better cover the possibilities in HH objects
 + The cooling length hardly changes up to 75 km/s, then suddenly starts to get large
+*** Repeat table of models, but starting with velocity
+So, now I am going to do the same except choosing a set of velocities, instead of choosing a set of ambient densities
 
-** Cloudy shock model runs
-This is based on the WR ones, but with changes to the radiation field, densities, and abundances.
+#+name: new-cooling-zone-models
+#+BEGIN_SRC python :return outtab
+  import os
+  import numpy as np
+  from scipy import interpolate
+  from astropy.table import Table
 
+  k = 1.3806503e-16                         # Boltzmann's constant [cgs]
+  mp = 1.67262158e-24                       # Proton rest mass [cgs]
+  yHe = 0.087                               # He/H abundance
+  xHeplus = 1.0                             # He is all singly ionized
+  xH = 1.0                                  # H is all ionized
+  mu = 1.0 + 3.0*yHe                        # Mean mass per nucleon
+  gamma = 5./3.                             # adiabatic index
+  yr = 3.15576e7                            # Year in seconds
+  pc = 3.085677582e18                       # Parsec in cm
+
+  <<cool-read-func>>
+
+  tab = get_cooltable()
+
+  fLambda = interpolate.interp1d(tab['Temperature'], tab['Lambda (erg cm3/s)'])
+
+  # Density of equilibrium shocked shell n2 = M^2 n0
+  n2 = 1.0e4
+
+  # Equilibrium photoionized temperature before shock
+  T0 = 8500.0
+  # pre-shock adiabatic sound speed
+  c0 = np.sqrt(gamma*(1 + xH + yHe*(1 + xHeplus))*k*T0/((1 + 4*yHe)*mp)) 
+
+  # Equilibrium photoionized temperature in cool shell
+  T2 = T0                         
+
+  outtab = [['M0', 'Ushock, km/s', 'v1, km/s', 'n0', 'n1', 'n2', 'T1', 'dcool, mpc', 'tcool, yr'], None]
+
+  for ushock_kms in [20.0, 30.0, 40.0, 50.0, 60.0, 80.0, 100.0, 120.0, 140.0, 160.0]:
+      v0 = 1e5 * ushock_kms
+      # Mach number
+      M0 = v0 / c0
+      # Pre-shock density
+      n0 = n2 / (gamma * M0**2)
+      # Immediate post-shock density
+      n1 = n0 * 4.0 / (1.0 + 3.0/M0**2)
+      # Immediate post-shock temperature
+      T1 = T0 * (1./16.) * (5*M0**2 - 1.) * (1. + (3/M0**2))
+      # Immediate post-shock cooling coefficient
+      Lambda1 = fLambda(T1)
+      # Immediate post shock velocity (by continuity: M0 c0 n0 = v1 n1)
+      v1 = v0 * n0 / n1
+      # Immediate post-shock pressure
+      P1 = (1 + xH + yHe*(1 + xHeplus))*n1*k*T1
+      # Immediate post-shock radiative energy loss per volume
+      L1 = Lambda1*n1**2
+      # Finally the cooling distance
+      tcool = P1/((gamma - 1.)*L1)
+      dcool = v1*tcool
+
+      outtab.append(['{:.3g}'.format(x) for x in [M0, v0/1e5, v1/1e5, n0, n1, n2, T1, 1000*dcool/pc, tcool/yr]])
+
+#+END_SRC
+
+#+RESULTS: new-cooling-zone-models
+|   M0 | Ushock, km/s | v1, km/s |       n0 |       n1 |    n2 |       T1 | dcool, mpc | tcool, yr |
+|------+--------------+----------+----------+----------+-------+----------+------------+-----------|
+| 1.46 |           20 |     12.1 | 2.83e+03 | 4.69e+03 | 1e+04 | 1.23e+04 |     0.0787 |      6.38 |
+| 2.18 |           30 |     12.2 | 1.26e+03 | 3.09e+03 | 1e+04 | 1.98e+04 |     0.0741 |      5.93 |
+| 2.91 |           40 |     13.5 |      707 | 2.09e+03 | 1e+04 | 2.98e+04 |     0.0697 |      5.04 |
+| 3.64 |           50 |     15.3 |      453 | 1.48e+03 | 1e+04 | 4.25e+04 |     0.0698 |      4.45 |
+| 4.37 |           60 |     17.4 |      314 | 1.09e+03 | 1e+04 | 5.81e+04 |      0.072 |      4.06 |
+| 5.83 |           80 |     21.8 |      177 |      650 | 1e+04 | 9.75e+04 |      0.117 |      5.25 |
+| 7.28 |          100 |     26.4 |      113 |      428 | 1e+04 | 1.48e+05 |      0.383 |      14.2 |
+| 8.74 |          120 |     31.2 |     78.6 |      302 | 1e+04 |  2.1e+05 |      0.926 |      29.1 |
+| 10.2 |          140 |       36 |     57.7 |      224 | 1e+04 | 2.83e+05 |       2.61 |      70.8 |
+| 11.7 |          160 |     40.9 |     44.2 |      173 | 1e+04 | 3.68e+05 |       10.4 |       248 |
+
+** Constant pressure Cloudy shock cooling
+- We will try and repeat the exercise, but this time allow Cloudy to find the density with time, under the assumption that the pressure is constant
+  + This should be a reasonable approximation in the cooling zone, since the post-shock flow is subsonic
+- If we use a starting state that is in equilibrium at the equilibrium-shell density n_2, then this is not so good for modelling the pre-shock state - but, it should do fine for the cooling part
+  + The density would go down after the heat injection, since the temperature goes up
+  + Then it would slowly return to n_2 as the temperature declines to T_2 
+  + In principle, we could try another run that used n_0 or n_1 as the density and is constant density - this would be a better model of the heating portion, but we can't take that seriously anyhow
+- From the table above, the cooling  time is 4 to 10 years, so about 10^8 s
+  + The initial time step is set to 10^4 seconds in Cloudy
+  + But it increases that once the cooling starts
+
+
+
+
+*** Constant pressure Cloudy templates
+
+#+name: new-templates-for-shock-models
+#+begin_src python
+  <<template-constant-pressure-shock-model>>
+  <<template-save-commands>>
+  <<template-shock-time-commands-constant-pressure>>
+  <<template-orion-abundances>>
+  <<template-trapezium-radiation>>
+#+end_src
+
+The ~reset~ option to the ~constant pressure~ command should ensure that the pressure is kept the same from iteration to iteration, instaed of the density.
+#+name: template-constant-pressure-shock-model
+#+BEGIN_SRC python :results output silent
+  cloudy_input = """title Non-equilibrium shock heat/cool curve (Orion HH)
+  constant pressure no continuum reset
+  hden {hden:.2f} linear
+  radius {logRadius:.2f}
+  no grain physics
+  """
+#+END_SRC
+
+#+name: template-shock-time-commands-constant-pressure
+#+BEGIN_SRC python :results output silent
+  shock_input = """# shock_input
+  set dr 0
+  set nend 1
+  stop zone 1
+  set dynamics relax 2
+  iterate 200
+  hextra {logExtraHeat:.2f} time
+  # stop time when temperature falls below 1e4 K
+  time first timestep 5.0 stop at 13.0
+  time 0 scale 0
+  time 3.9 scale 0
+  time 4 scale 20 ionization
+  time 5.04 scale 20    
+  time 5.0414 scale 0    
+  time 9 scale 0  recombination
+  time 20 scale 0  
+  end of times
+  """
+#+END_SRC
+
+
+*** Write the constant pressure input files
++ The problem here is that we need to do the heating at constant pressure, although in reality it is not
+  + it is not quite at constant density either, since the density does jump by factor of up to 4
++ We want to get the T from T_0 \to T_1 at constant pressure:
+  + So, how much energy do we need to inject in a unit volume?
+  + This will be dominated by the work done: P (V_1 - V_0) = P V_0 (V_1/V_0 - 1) = P V_0 (\rho_0/\rho_1 - 1)
+  + The constant pressure means that \rho_0 T_0 = \rho_1 T_1 => \rho_0/\rho_1 = T_1/T_0
+  + So E/V = 2 n_0 k T_0 (T_1/T_0 - 1)
++ However, if we inject this over an extended time (10 timesteps), then as the density goes down then the energy is spread among fewer particles, so the \Delta T goes up
+  - this is not necessarily what we want
+  - and it seems to lead to the temperature diverging!
+  - we could try to inject it all in a single timestep
+
+#+header: :var models=new-cooling-zone-models
+#+BEGIN_SRC python :results output
+  import numpy as np
+  from pathlib import Path
+
+  <<new-templates-for-shock-models>>
+
+  # Shock heating time in seconds
+  theat = 1e5
+
+  mp = 1.67262158e-24                       # Proton rest mass [cgs]
+  yHe = 0.087                               # He/H abundance
+  km = 1.e5                                 # kilometer in cm
+
+  logRadius = 17.5                     # log10 Radius, cm
+
+  T0 = 8500.0
+  kBoltzmann = 1.3806503e-16
+
+  for row in models:
+      M0, u0, v1, n0, n1, N2, T1, dcool, tcool = [float(x) for x in row]
+      model_id = f'trap-pshock-R{int(10*logRadius):d}-shock-v{u0:03.0f}'
+
+      # Energy flux dissipated in shock
+      dE0 = 0.5*mp*(1.0 + 4.0*yHe)*km**3 * (n0*u0**3 - n1*v1**3)
+      #dE0 *= N2/n1
+
+      # erg/cm3/s
+      extra_heat = (5./3.)*dE0/(v1*km*theat)
+      # extra_heat = 2 * N2 * kBoltzmann * (T1 - T0) / theat
+
+      with open(Path("models") / f'{model_id}.in', 'w') as f:
+          f.write(cloudy_input.format(hden=N2, logRadius=logRadius))
+          f.write(save_input)
+          f.write(orion_abundances_input)
+          f.write(shock_input.format(logExtraHeat=np.log10(extra_heat)-20))
+          f.write(trapezium_radiation_input)
+
+      print(model_id, u0, T1, extra_heat)
+#+END_SRC
+
+#+RESULTS:
+#+begin_example
+trap-pshock-R175-shock-v020 20.0 12300.0 2.2254044394875234e-13
+trap-pshock-R175-shock-v030 30.0 19800.0 4.3752503849575973e-13
+trap-pshock-R175-shock-v040 40.0 29800.0 5.581872768266716e-13
+trap-pshock-R175-shock-v050 50.0 42500.0 6.302859969548508e-13
+trap-pshock-R175-shock-v060 60.0 58100.0 6.703811136158428e-13
+trap-pshock-R175-shock-v080 80.0 97500.0 7.230349021821064e-13
+trap-pshock-R175-shock-v100 100.0 148000.0 7.481833689171471e-13
+trap-pshock-R175-shock-v120 120.0 210000.0 7.626975359975078e-13
+trap-pshock-R175-shock-v140 140.0 283000.0 7.718039314024061e-13
+trap-pshock-R175-shock-v160 160.0 368000.0 7.77322248731578e-13
+#+end_example
+
+
+
+This is what I got from using the constant pressure argument.  It is far too much, since the 050 one exceeds 1e10 K
+#+RESULTS:
+#+begin_example
+trap-pshock-R175-shock-v020 20.0 12300.0 1.049294228e-13
+trap-pshock-R175-shock-v030 30.0 19800.0 3.120269678e-13
+trap-pshock-R175-shock-v040 40.0 29800.0 5.881570278e-13
+trap-pshock-R175-shock-v050 50.0 42500.0 9.38842204e-13
+trap-pshock-R175-shock-v060 60.0 58100.0 1.3696050976e-12
+trap-pshock-R175-shock-v080 80.0 97500.0 2.4575575339999998e-12
+trap-pshock-R175-shock-v100 100.0 148000.0 3.852014337e-12
+trap-pshock-R175-shock-v120 120.0 210000.0 5.564020709e-12
+trap-pshock-R175-shock-v140 140.0 283000.0 7.579770147e-12
+trap-pshock-R175-shock-v160 160.0 368000.0 9.926875657e-12
+#+end_example
+
+
+And this is what I got using the KE flux with n_2
+#+begin_example
+trap-pshock-R175-shock-v020 20.0 12300.0 2.846999282926469e-13
+trap-pshock-R175-shock-v030 30.0 19800.0 8.495631815451645e-13
+trap-pshock-R175-shock-v040 40.0 29800.0 1.6024515124210666e-12
+trap-pshock-R175-shock-v050 50.0 42500.0 2.5552135011683142e-12
+trap-pshock-R175-shock-v060 60.0 58100.0 3.690171267610144e-12
+trap-pshock-R175-shock-v080 80.0 97500.0 6.674168327834828e-12
+trap-pshock-R175-shock-v100 100.0 148000.0 1.048855190070767e-11
+trap-pshock-R175-shock-v120 120.0 210000.0 1.5152931178758428e-11
+trap-pshock-R175-shock-v140 140.0 283000.0 2.0673319591135876e-11
+trap-pshock-R175-shock-v160 160.0 368000.0 2.695915313519924e-11
+#+end_example
+
+
+This is the earlier one that I got from using the KE flux with n_1.  This is the best so far, but I do need to increase it since half the effort is cancelled by expansion cooling
+#+begin_example
+trap-pshock-R175-shock-v020 20.0 12300.0 1.335242663692514e-13
+trap-pshock-R175-shock-v030 30.0 19800.0 2.625150230974558e-13
+trap-pshock-R175-shock-v040 40.0 29800.0 3.349123660960029e-13
+trap-pshock-R175-shock-v050 50.0 42500.0 3.781715981729105e-13
+trap-pshock-R175-shock-v060 60.0 58100.0 4.022286681695057e-13
+trap-pshock-R175-shock-v080 80.0 97500.0 4.338209413092638e-13
+trap-pshock-R175-shock-v100 100.0 148000.0 4.489100213502882e-13
+trap-pshock-R175-shock-v120 120.0 210000.0 4.576185215985046e-13
+trap-pshock-R175-shock-v140 140.0 283000.0 4.630823588414436e-13
+trap-pshock-R175-shock-v160 160.0 368000.0 4.663933492389468e-13
+#+end_example
+
+
+
+*** Running the constant pressure Cloudy models
++ First, I had a lot of difficulties in working out exactly how much energy to inject in order to get a given shock velocity
+  + There is an extra expansion cooling term that kicks in when the heating does, which ends up canceling out about half of the injected energy
+  + So I multiplied everything by two, but even so things don't seem to be quite right (see the table below)
++ Second, I was not able to do the higher velocity runs
+  * The ~v100~ and higher models *all crashed* at the beginning of the 4th iteration
+  * That is the one /after/ the heat was injected
+  * Complained about T higher than 1e10
++ Table of the highest T reached versus T expected for each model
+  | model | T at step 3 | T expected |
+  |-------+-------------+------------|
+  | v020  | 1.26446e+04 |    12300.0 |
+  | v050  | 3.75577e+04 |    42500.0 |
+  | v060  | 4.54783e+04 |    58100.0 |
+  | v080  | 5.80974e+04 |    97500.0 |
+  |-------+-------------+------------|
+  | v100  | 6.38176e+04 |   148000.0 |
+  | v160  | 7.91821e+04 |   368000.0 |
+  |       |             |            |
+
+
+*** Inspecting output from the constant pressure models
+:PROPERTIES:
+:ID:       5AE7E49E-D601-4E9F-A85F-879BEFCB2D3D
+:END:
+
+**** Heating and cooling rates
+#+name: read-in-cloudy-model
+#+BEGIN_SRC python
+  import sys
+  sys.path.append('/Users/will/Work/CLOUDY/claudia/')
+  from claudia import CloudyModel
+  CloudyModel.skipsaves.append('continuum')
+  CloudyModel.skipsaves.remove(".tim")
+  m = CloudyModel(PREFIX, niter=0)
+#+END_SRC
+
++ Table of heating/cooling, showing first 9 timesteps, then every 20th thereafter
+#+BEGIN_SRC python :var PREFIX="models/trap-pshock-R175-shock-v080"
+  <<read-in-cloudy-model>>
+  return [m.cool.dtype.names, None] + list(m.cool)[:8] + list(m.cool)[8::20]
+#+END_SRC
+
+#+RESULTS:
+| depth_cm |  Temp_K | Htot_ergcm3s | Ctot_ergcm3s |
+|---------+--------+-------------+-------------|
+|     0.5 | 8613.4 |  2.7222e-16 |  2.7222e-16 |
+|     0.5 | 8613.3 |  2.7222e-16 |  2.7222e-16 |
+|     0.5 |  58097 |  7.2444e-13 |  3.8909e-13 |
+|     0.5 |  57813 |  1.4403e-18 |  2.0309e-15 |
+|     0.5 |  57843 |   6.422e-16 |  4.2727e-16 |
+|     0.5 |  57803 |  4.3525e-16 |  4.2806e-16 |
+|     0.5 |  57828 |  4.2901e-16 |  4.2974e-16 |
+|     0.5 |  56512 |  1.7005e-16 |  4.2573e-16 |
+|     0.5 |  55214 |  1.6649e-16 |  4.2171e-16 |
+|     0.5 |  34745 |  1.4511e-16 |  3.6022e-16 |
+|     0.5 |  22174 |  1.3257e-16 |  3.0562e-16 |
+|     0.5 |  14786 |   1.494e-16 |  2.8337e-16 |
+|     0.5 |  10949 |  1.9584e-16 |  2.7682e-16 |
+|     0.5 | 9366.7 |  2.4209e-16 |  2.7437e-16 |
+|     0.5 | 8847.6 |  2.6002e-16 |  2.7306e-16 |
+|     0.5 | 8697.6 |  2.6748e-16 |  2.7266e-16 |
+|     0.5 | 8656.1 |  2.6995e-16 |  2.7262e-16 |
+|     0.5 | 8645.8 |  2.7003e-16 |  2.7261e-16 |
+
+
+**** Ion fractions and net cooling
+#+BEGIN_SRC python :return table :var PREFIX="models/trap-pshock-R175-shock-v080"
+  import numpy as np
+  <<read-in-cloudy-model>>
+
+  # Net cooling coefficient for all times
+  NeNp = m.ovr.HII*m.ovr.hden*m.ovr.eden
+  Lambda_full = (m.cool.Ctot_ergcm3s - m.cool.Htot_ergcm3s)/NeNp
+
+  names = ["T, K", "O^{++} frac", "He^{++} frac", "C^{3+} frac", "Net cool"]
+  data = list(zip(m.ovr["Te"], m.ovr["O3"], m.ovr["HeIII"], m.ovr["C4"], np.round(1e24*Lambda_full, 3)))
+  table = [names, None] + data[:10] + data[10::20]
+#+END_SRC
+
+#+RESULTS:
+|    T, K | O^{++} frac |  He^{++} frac |   C^{3+} frac |    Net cool |
+|---------+----------+------------+------------+-------------|
+|  8613.4 |  0.88088 | 0.00038484 | 0.00055316 |         0.0 |
+|  8613.3 |  0.88088 | 0.00038484 | 0.00055317 |         0.0 |
+| 58097.0 |  0.95771 |   0.052937 |  0.0090392 | -137536.873 |
+| 57813.0 |  0.95772 |   0.052937 |   0.009037 |     843.231 |
+| 57843.0 |  0.95773 |   0.052938 |   0.009035 |     -88.856 |
+| 57803.0 |  0.95774 |   0.052938 |  0.0090327 |      -2.962 |
+| 57828.0 |  0.95775 |   0.052938 |  0.0090306 |         0.3 |
+| 56512.0 |   0.9581 |   0.052888 |  0.0086776 |     100.203 |
+| 55214.0 |  0.95857 |   0.052801 |  0.0081481 |      95.486 |
+| 53945.0 |  0.95915 |   0.052683 |  0.0075214 |       90.27 |
+| 52705.0 |  0.95981 |   0.052538 |  0.0068561 |      85.424 |
+| 33188.0 |  0.97408 |   0.045804 |  0.0017262 |      28.506 |
+| 21234.0 |  0.96973 |   0.031465 |  0.0016503 |       9.369 |
+| 14266.0 |  0.94575 |   0.013465 |  0.0013783 |       3.233 |
+| 10711.0 |  0.91506 |  0.0031635 | 0.00086507 |       1.057 |
+|  9280.2 |  0.89383 | 0.00073356 | 0.00064587 |       0.251 |
+|  8823.1 |  0.88514 | 0.00042993 | 0.00058107 |       0.097 |
+|  8690.4 |  0.88244 | 0.00039466 | 0.00056313 |       0.045 |
+|  8655.1 |  0.88167 | 0.00038857 | 0.00055823 |       0.028 |
+|  8644.9 |  0.88147 | 0.00038723 | 0.00055694 |       0.023 |
+
+
+So, the net cooling is all over the place.  There is an initial negative spike from the energy injection, but then it oscillates for a bit before starting the proper cooling.
+
+I should look at the same from the constant density models.
+
+**** Line emission
+#+BEGIN_SRC python :results list :return names :var PREFIX="models/trap-pshock-R175-shock-v080"
+  <<read-in-cloudy-model>>
+  names = [f"~{_}~" for _ in m.ems.dtype.names]
+#+END_SRC
+
+#+RESULTS:
+- ~depth~
+- ~O__3_500684A~
+- ~O__3_436321A~
+- ~H__1_656285A~
+- ~BLND_472500A~
+- ~BLND_190900A~
+- ~BLND_117600A~
+- ~BLND_154900A~
+- ~BLND_166600A~
+- ~BLND_835000A~
+- ~BLND_789000A~
+- ~BLND_140200A~
+- ~BLND_175000A~
+- ~BLND_990000A~
+- ~BLND_148600A~
+
+We should also look at the ~He 2 4685.64A~ line
+
+#+name: line-emission-from-shock
+#+BEGIN_SRC python :return table :var PREFIX="models/trap-pshock-R175-shock-v080"
+  import numpy as np
+  <<read-in-cloudy-model>>
+  names = ["T, K", "Ne, pcc",
+           "H alpha",
+           "[O III] 5007", "[O III] 4363",
+           "C III 1909", "[Ar IV] 4725",
+           "[C IV] 1549",
+           ]
+  data = list(zip(
+      m.ovr["Te"], m.ovr["eden"],
+      np.round(1e18*m.ems["H__1_656285A"], 2),
+      np.round(1e18*m.ems["O__3_500684A"], 2),
+      np.round(1e18*m.ems["O__3_436321A"], 2),
+      np.round(1e18*m.ems["BLND_190900A"], 2),
+      np.round(1e18*m.ems["BLND_472500A"], 2),
+      np.round(1e18*m.ems["BLND_154900A"], 2),
+  ))
+  table = [names, None] + data[:8] + data[8::10]
+#+END_SRC
+
+#+RESULTS: line-emission-from-shock
+|    T, K | Ne, pcc | H alpha | [O III] 5007 | [O III] 4363 | C III 1909 | [Ar IV] 4725 | [C IV] 1549 |
+|---------+---------+---------+--------------+--------------+------------+--------------+-------------|
+|  8613.4 | 10962.0 |   36.92 |        90.24 |         0.37 |        3.7 |         0.05 |        2.28 |
+|  8613.3 | 10962.0 |   36.92 |        90.24 |         0.37 |        3.7 |         0.05 |        2.28 |
+| 58097.0 |  1639.4 |    0.16 |        18.39 |         1.75 |      61.13 |         0.18 |        8.37 |
+| 57813.0 |  1628.3 |    0.31 |        18.14 |         1.72 |      60.13 |         0.18 |        8.28 |
+| 57843.0 |  1632.5 |    0.31 |        18.24 |         1.73 |      60.46 |         0.18 |        8.31 |
+| 57803.0 |  1635.6 |    0.31 |         18.3 |         1.74 |      60.64 |         0.18 |        8.32 |
+| 57828.0 |  1637.7 |    0.32 |        18.36 |         1.74 |      60.84 |         0.18 |        8.34 |
+| 56512.0 |  1676.5 |    0.18 |        19.22 |          1.8 |      62.69 |         0.19 |        8.19 |
+| 55214.0 |  1715.8 |    0.19 |        20.11 |         1.86 |      64.51 |         0.19 |        7.86 |
+| 43759.0 |  2164.7 |    0.36 |        31.25 |         2.51 |      81.89 |         0.22 |        3.47 |
+| 34745.0 |  2725.8 |    0.68 |        46.72 |         3.12 |      91.06 |          0.2 |        2.48 |
+| 27677.0 |  3421.1 |    1.29 |        65.79 |         3.49 |      90.71 |         0.18 |        2.64 |
+| 22174.0 |  4268.5 |    2.41 |        85.58 |         3.42 |       79.1 |         0.16 |        3.04 |
+| 17943.0 |  5272.6 |    4.42 |       102.68 |         2.92 |      59.41 |         0.15 |        3.45 |
+| 14786.0 |  6395.3 |    7.72 |       112.87 |         2.19 |      38.12 |         0.12 |        3.56 |
+| 12510.0 |  7565.9 |   12.57 |        115.1 |          1.5 |      22.43 |          0.1 |        3.31 |
+| 10949.0 |  8639.1 |    18.5 |       110.72 |          1.0 |      13.06 |         0.08 |        2.95 |
+|  9946.2 |  9481.7 |   24.29 |       103.98 |          0.7 |        8.2 |         0.07 |        2.67 |
+|  9366.7 | 10102.0 |    29.1 |        99.38 |         0.55 |        6.0 |         0.06 |        2.51 |
+|  9023.3 | 10482.0 |   32.39 |        95.57 |         0.46 |       4.86 |         0.06 |         2.4 |
+|  8847.6 | 10683.0 |   34.25 |        93.39 |         0.42 |       4.34 |         0.05 |        2.35 |
+|  8752.2 | 10795.0 |    35.3 |        92.14 |          0.4 |       4.07 |         0.05 |        2.32 |
+|  8697.6 | 10863.0 |   35.95 |        91.44 |         0.39 |       3.92 |         0.05 |        2.31 |
+|  8669.5 | 10897.0 |   36.28 |        91.07 |         0.38 |       3.85 |         0.05 |         2.3 |
+|  8656.1 | 10915.0 |   36.44 |        90.91 |         0.38 |       3.81 |         0.05 |         2.3 |
+|  8650.7 | 10923.0 |   36.52 |        90.86 |         0.38 |        3.8 |         0.05 |         2.3 |
+|  8645.8 | 10928.0 |   36.57 |        90.78 |         0.38 |       3.79 |         0.05 |        2.29 |
+|  8642.5 | 10932.0 |   36.61 |        90.73 |         0.37 |       3.78 |         0.05 |        2.29 |
+
+
+Now try the 40 km/s shock
+
+#+call: line-emission-from-shock(PREFIX="models/trap-pshock-R175-shock-v040")
+
+#+RESULTS:
+|    T, K | Ne, pcc | H alpha | [O III] 5007 | [O III] 4363 | C III 1909 | [Ar IV] 4725 | [C IV] 1549 |
+|---------+---------+---------+--------------+--------------+------------+--------------+-------------|
+|  8613.4 | 10962.0 |   36.92 |        90.24 |         0.37 |        3.7 |         0.05 |        2.28 |
+|  8613.3 | 10962.0 |   36.92 |        90.24 |         0.37 |        3.7 |         0.05 |        2.28 |
+| 29300.0 |  3239.4 |    1.08 |        61.35 |         3.46 |      92.58 |         0.13 |        2.55 |
+| 29164.0 |  3220.0 |    2.14 |        60.46 |          3.4 |      90.58 |         0.13 |        2.53 |
+| 29187.0 |  3228.2 |    2.14 |        60.79 |         3.42 |      91.19 |         0.13 |        2.54 |
+| 29185.0 |  3233.3 |    2.15 |        60.98 |         3.43 |      91.46 |         0.13 |        2.54 |
+| 29176.0 |  3236.2 |    2.15 |        61.08 |         3.43 |      91.57 |         0.13 |        2.54 |
+| 28542.0 |  3311.8 |    1.18 |        63.13 |         3.46 |      91.43 |         0.14 |        2.58 |
+| 27905.0 |  3387.5 |    1.26 |        65.09 |         3.48 |      90.92 |         0.14 |        2.62 |
+| 22344.0 |  4230.4 |    2.36 |        84.91 |         3.43 |      79.68 |         0.16 |        3.03 |
+| 18073.0 |  5229.9 |    4.33 |       102.17 |         2.94 |      60.19 |         0.15 |        3.44 |
+| 14876.0 |  6358.8 |     7.6 |       112.87 |         2.22 |      38.83 |         0.13 |        3.57 |
+| 12568.0 |  7529.1 |    12.4 |       115.16 |         1.52 |      22.82 |          0.1 |        3.32 |
+| 10986.0 |  8608.6 |   18.32 |        110.9 |         1.01 |      13.26 |         0.08 |        2.96 |
+|  9968.6 |  9459.9 |   24.13 |       104.16 |          0.7 |       8.29 |         0.07 |        2.68 |
+|  9378.2 | 10082.0 |   28.96 |        99.37 |         0.55 |       6.03 |         0.06 |        2.51 |
+|  9030.6 | 10473.0 |   32.31 |        95.65 |         0.46 |       4.88 |         0.06 |        2.41 |
+|  8846.7 | 10683.0 |   34.25 |        93.35 |         0.42 |       4.33 |         0.05 |        2.35 |
+|  8750.7 | 10797.0 |   35.32 |        92.12 |          0.4 |       4.07 |         0.05 |        2.32 |
+|  8697.9 | 10862.0 |   35.94 |        91.45 |         0.39 |       3.92 |         0.05 |        2.31 |
+|  8669.6 | 10897.0 |   36.28 |        91.07 |         0.38 |       3.85 |         0.05 |         2.3 |
+|  8656.6 | 10915.0 |   36.45 |        90.94 |         0.38 |       3.82 |         0.05 |         2.3 |
+|  8651.0 | 10922.0 |   36.52 |        90.86 |         0.38 |        3.8 |         0.05 |         2.3 |
+|  8645.8 | 10927.0 |   36.57 |        90.77 |         0.38 |       3.79 |         0.05 |        2.29 |
+|  8642.7 | 10932.0 |   36.61 |        90.74 |         0.37 |       3.78 |         0.05 |        2.29 |
+|  8641.5 | 10934.0 |   36.63 |        90.73 |         0.37 |       3.78 |         0.05 |        2.29 |
+|  8640.8 | 10935.0 |   36.64 |        90.72 |         0.37 |       3.77 |         0.05 |        2.29 |
+|  8640.2 | 10935.0 |   36.64 |        90.71 |         0.37 |       3.77 |         0.05 |        2.29 |
+
+
+** Constant density Cloudy shock model runs
++ This is based on the WR ones, but with changes to the radiation field, densities, and abundances.
++ The Cloudy models are at constant density, but then we do an external calculation of the "real" density variation. 
 *** The templates for Cloudy input files
 + Parameter that need to be sent to ~cloudy_input~
   + ~hden~ = 1e4
@@ -172,12 +652,27 @@ This is based on the WR ones, but with changes to the radiation field, densities
     
 
 #+name: templates-for-shock-models
+#+begin_src python
+<<template-constant-density-shock-model>>
+<<template-save-commands>>
+<<template-shock-time-commands>>
+<<template-orion-abundances>>
+<<template-trapezium-radiation>>
+#+end_src
+
+#+name: template-constant-density-shock-model
 #+BEGIN_SRC python :results output silent
   cloudy_input = """title Non-equilibrium shock heat/cool curve (Orion HH)
   constant density 
   hden {hden:.2f} linear
   radius {logRadius:.2f}
   no grain physics
+  """
+#+END_SRC
+  
+#+name: template-save-commands
+#+BEGIN_SRC python :results output silent
+  save_input="""# save_input
   print line faint 2 log 
   print line cumulative
   print ages
@@ -209,8 +704,12 @@ This is based on the WR ones, but with changes to the radiation field, densities
   save element oxygen file=".O" no hash
   save element iron file=".Fe" no hash
   """
+#+END_SRC
 
-  shock_input = """set dr 0
+#+name: template-shock-time-commands
+#+BEGIN_SRC python :results output silent
+  shock_input = """# shock_input
+  set dr 0
   set nend 1
   stop zone 1
   set dynamics relax 2
@@ -227,13 +726,20 @@ This is based on the WR ones, but with changes to the radiation field, densities
   time 20 scale 0  
   end of times
   """
+#+END_SRC
 
-  orion_abundances_input = """# Orion nebula abundances
+#+name: template-orion-abundances
+#+BEGIN_SRC python :results output silent
+  orion_abundances_input = """# orion_abundances_input
   abundances hii region no grains
   grains orion no qheat
   """
+#+END_SRC
 
-  trapezium_radiation_input = """# Total trapezium SED from POWR OB models
+#+name: template-trapezium-radiation
+#+BEGIN_SRC python :results output silent
+  trapezium_radiation_input = """# trapezium_radiation_input
+  # Total trapezium SED from POWR OB models
   table SED "trapezium_powr_fine_fuv.sed"
   luminosity total 38.89
   # Add 1 L_sun of 1e6 K x-rays
@@ -278,6 +784,7 @@ This is based on the WR ones, but with changes to the radiation field, densities
 
       with open(Path("models") / f'{model_id}.in', 'w') as f:
           f.write(cloudy_input.format(hden=N2, logRadius=logRadius))
+          f.write(save_input)
           f.write(orion_abundances_input)
           f.write(shock_input.format(logExtraHeat=np.log10(extra_heat)-20))
           f.write(trapezium_radiation_input)
@@ -301,12 +808,294 @@ trap-shock-R175-shock-v150 150.0 326000.0 2.3668956285297927e-11
 #+end_example
 
 
+** Inspecting the output data from the constant density models
++ This is inspired by what I did in [[id:5AE7E49E-D601-4E9F-A85F-879BEFCB2D3D][Inspecting output from the constant pressure models]]
++ It will be good to compare and contrast
++ We will mainly concentrate on the ~v048~ model, since that is very similar to the ~v080~ constant pressure one.
+*** Heating and cooling from constant density models
+#+BEGIN_SRC python :var PREFIX="models/trap-shock-R175-shock-v048"
+  <<read-in-cloudy-model>>
+  return [m.cool.dtype.names, None] + list(m.cool)[:16:2] + list(m.cool)[16::20]
+#+END_SRC
+
+#+RESULTS:
+| depth_cm |  Temp_K | Htot_ergcm3s | Ctot_ergcm3s |
+|---------+--------+-------------+-------------|
+|     0.5 | 8613.4 |  2.7221e-16 |  2.7221e-16 |
+|     0.5 |  13658 |  2.2911e-12 |   6.909e-16 |
+|     0.5 |  23741 |   2.291e-12 |  2.4493e-15 |
+|     0.5 |  33810 |   2.291e-12 |  6.1927e-15 |
+|     0.5 |  43858 |   2.291e-12 |  1.1139e-14 |
+|     0.5 |  53879 |   2.291e-12 |  1.7536e-14 |
+|     0.5 |  58856 |  1.2067e-14 |  2.1339e-14 |
+|     0.5 |  56710 |  4.7798e-17 |  1.8908e-14 |
+|     0.5 |  52647 |  5.3104e-17 |  1.5811e-14 |
+|     0.5 |  25284 |   1.231e-16 |  2.7573e-15 |
+|     0.5 |  13307 |   1.995e-16 |  6.5512e-16 |
+|     0.5 | 9464.5 |  2.5468e-16 |  3.2757e-16 |
+|     0.5 |   8734 |  2.6957e-16 |  2.7969e-16 |
+|     0.5 | 8630.5 |  2.7185e-16 |  2.7328e-16 |
+|     0.5 | 8616.5 |  2.7216e-16 |  2.7242e-16 |
+|     0.5 | 8614.6 |   2.722e-16 |  2.7231e-16 |
+|     0.5 | 8614.4 |   2.722e-16 |  2.7229e-16 |
+|     0.5 | 8614.3 |  2.7221e-16 |  2.7229e-16 |
+*** Ion fractions and net cooling for constant density
+#+BEGIN_SRC python :return table :var PREFIX="models/trap-shock-R175-shock-v048"
+  import numpy as np
+  <<read-in-cloudy-model>>
+
+  # Net cooling coefficient for all times
+  NeNp = m.ovr.HII*m.ovr.hden*m.ovr.eden
+  Lambda_full = (m.cool.Ctot_ergcm3s - m.cool.Htot_ergcm3s)/NeNp
+
+  names = ["T, K", "O^{++} frac", "He^{++} frac", "C^{3+} frac", "Net cool"]
+  data = list(zip(m.ovr["Te"], m.ovr["O3"], m.ovr["HeIII"], m.ovr["C4"], np.round(1e24*Lambda_full, 3)))
+  table = [names, None] + data[:16:2] + data[16::10]
+#+END_SRC
+
+#+RESULTS:
+|    T, K | O^{++} frac |  He^{++} frac |   C^{3+} frac |   Net cool |
+|---------+----------+------------+------------+------------|
+|  8613.4 |  0.88088 | 0.00038485 | 0.00055318 |        0.0 |
+| 13658.0 |  0.90755 | 0.00052563 | 0.00079176 | -20894.866 |
+| 23741.0 |  0.90764 | 0.00052568 | 0.00079114 | -20877.495 |
+| 33810.0 |  0.90767 | 0.00052577 | 0.00078894 | -20841.027 |
+| 43858.0 |  0.90743 | 0.00052611 | 0.00078726 | -20795.285 |
+| 53879.0 |  0.90688 | 0.00052979 | 0.00080344 | -20736.314 |
+| 58856.0 |  0.90619 | 0.00054406 | 0.00087277 |      84.56 |
+| 56710.0 |  0.89281 | 0.00067954 |  0.0018321 |    171.997 |
+| 52647.0 |  0.87396 | 0.00083122 |  0.0024122 |    143.706 |
+| 36337.0 |  0.88182 | 0.00095048 | 0.00068558 |     59.804 |
+| 25284.0 |   0.9226 | 0.00094239 | 0.00053784 |     24.027 |
+| 17928.0 |  0.92131 |  0.0008777 | 0.00073347 |      9.871 |
+| 13307.0 |  0.90742 | 0.00074144 | 0.00079109 |      4.157 |
+| 10715.0 |   0.8952 | 0.00058415 | 0.00068809 |      1.706 |
+|  9464.5 |  0.88736 | 0.00047363 | 0.00060978 |      0.665 |
+|  8938.4 |  0.88349 | 0.00041944 | 0.00057486 |       0.25 |
+|  8734.0 |  0.88187 | 0.00039758 | 0.00056121 |      0.092 |
+|  8658.4 |  0.88125 | 0.00038946 | 0.00055615 |      0.034 |
+|  8630.5 |  0.88102 | 0.00038652 | 0.00055429 |      0.013 |
+|  8620.3 |  0.88094 | 0.00038546 | 0.00055361 |      0.005 |
+|  8616.5 |   0.8809 | 0.00038508 | 0.00055335 |      0.002 |
+|  8615.1 |  0.88089 | 0.00038494 | 0.00055326 |      0.001 |
+|  8614.6 |  0.88089 | 0.00038489 | 0.00055323 |      0.001 |
+|  8614.4 |  0.88089 | 0.00038487 | 0.00055322 |      0.001 |
+|  8614.4 |  0.88089 | 0.00038486 | 0.00055321 |      0.001 |
+|  8614.4 |  0.88089 | 0.00038486 | 0.00055321 |      0.001 |
+|  8614.3 |  0.88089 | 0.00038486 | 0.00055321 |      0.001 |
+
++ So, interestingly the He2+ and C3+ fractions never go up much in these models, presumably because the density stays high.
+  + This implies that the effect in the constant P models is mainly due to the low density bringing down the ionization parameter, rather than being from any collisional ionization
+*** Line emission from constant density model
+
++ Note that we *adjust* the emissivities to take into account the "real" densities, which we calculate assuming constant pressure (even though the model was calculated in constant density)
++ This is correct to first order, but cannot correct the ionization parameter changes, which affect the degree of ionization and therefore the emissivity of [C IV] and He II lines
+
+
+#+name: line-emission-from-constant-density-shock
+#+BEGIN_SRC python :return table :var PREFIX="models/trap-shock-R175-shock-v048"
+  import numpy as np
+  <<read-in-cloudy-model>>
+  T0 = 8600.0
+  denfac = T0 / m.ovr.Te
+
+  def emissivity(line_id):
+      return np.round(1e18*m.ems[line_id]*denfac**2, 2)
+
+  names = ["T, K", "Ne, pcc",
+           "H alpha",
+           "[O III] 5007", "[O III] 4363",
+           "C III 1909", "[Ar IV] 4725",
+           "[C IV] 1549",
+           ]
+  data = list(zip(
+      m.ovr["Te"], np.round(m.ovr["eden"]*denfac, 0),
+      emissivity("H__1_656285A"),
+      emissivity("O__3_500684A"),
+      emissivity("O__3_436321A"),
+      emissivity("BLND_190900A"),
+      emissivity("BLND_472500A"),
+      emissivity("BLND_154900A"),
+  ))
+  table = [names, None] + data[::5]
+#+END_SRC
+
+#+RESULTS: line-emission-from-constant-density-shock
+|    T, K | Ne, pcc | H alpha | [O III] 5007 | [O III] 4363 | C III 1909 | [Ar IV] 4725 | [C IV] 1549 |
+|---------+---------+---------+--------------+--------------+------------+--------------+-------------|
+|  8613.4 | 10945.0 |    36.8 |        89.96 |         0.37 |       3.69 |         0.05 |        2.28 |
+| 28778.0 |  3276.0 |   19.42 |        57.43 |         3.25 |      89.49 |         0.04 |        0.55 |
+| 53879.0 |  1750.0 |    4.03 |        19.74 |         1.84 |      64.52 |         0.01 |        0.35 |
+| 54643.0 |  1726.0 |    0.32 |        18.69 |         1.75 |      61.38 |         0.03 |        0.97 |
+| 45363.0 |  2079.0 |    0.48 |        25.84 |         2.16 |      74.75 |         0.06 |        0.84 |
+| 37700.0 |  2502.0 |    0.72 |        36.37 |         2.66 |      84.11 |         0.06 |        0.45 |
+| 31389.0 |  3004.0 |    1.06 |        50.32 |         3.11 |      88.69 |         0.07 |        0.34 |
+| 26203.0 |  3599.0 |    1.63 |        66.03 |         3.35 |      86.34 |         0.07 |        0.39 |
+| 21963.0 |  4294.0 |    2.57 |        81.53 |         3.28 |      76.63 |         0.07 |        0.53 |
+| 18528.0 |  5090.0 |    4.08 |        95.11 |         2.92 |      61.59 |         0.07 |        0.75 |
+| 15793.0 |  5970.0 |    6.38 |       104.81 |         2.38 |      44.45 |         0.07 |        1.04 |
+| 13667.0 |  6899.0 |    9.66 |       109.64 |         1.81 |      29.77 |         0.07 |        1.35 |
+| 12065.0 |  7815.0 |   13.86 |       109.92 |         1.32 |      19.26 |         0.07 |        1.61 |
+| 10902.0 |  8649.0 |   18.61 |       107.03 |         0.96 |      12.63 |         0.06 |        1.81 |
+| 10092.0 |  9342.0 |   23.28 |       103.06 |         0.73 |       8.76 |         0.06 |        1.96 |
+|  9548.2 |  9873.0 |   27.32 |        99.13 |         0.58 |       6.58 |         0.06 |        2.06 |
+|  9195.6 | 10252.0 |   30.47 |        96.05 |          0.5 |       5.35 |         0.05 |        2.14 |
+|  8971.9 | 10508.0 |   32.71 |        93.86 |         0.44 |       4.66 |         0.05 |        2.19 |
+|  8832.6 | 10674.0 |   34.23 |         92.4 |         0.41 |       4.26 |         0.05 |        2.22 |
+|  8746.6 | 10779.0 |   35.21 |        91.47 |          0.4 |       4.03 |         0.05 |        2.24 |
+|  8694.7 | 10844.0 |   35.82 |        90.89 |         0.38 |        3.9 |         0.05 |        2.26 |
+|  8663.1 | 10883.0 |    36.2 |        90.53 |         0.38 |       3.81 |         0.05 |        2.26 |
+|  8643.9 | 10907.0 |   36.43 |        90.31 |         0.37 |       3.76 |         0.05 |        2.27 |
+|  8632.2 | 10922.0 |   36.58 |        90.18 |         0.37 |       3.74 |         0.05 |        2.27 |
+|  8625.2 | 10931.0 |   36.66 |         90.1 |         0.37 |       3.72 |         0.05 |        2.27 |
+|  8620.9 | 10936.0 |   36.71 |        90.05 |         0.37 |       3.71 |         0.05 |        2.28 |
+|  8618.3 | 10940.0 |   36.75 |        90.02 |         0.37 |        3.7 |         0.05 |        2.28 |
+|  8616.7 | 10942.0 |   36.77 |        90.01 |         0.37 |        3.7 |         0.05 |        2.28 |
+|  8615.8 | 10943.0 |   36.78 |        89.99 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8615.2 | 10944.0 |   36.78 |        89.99 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.9 | 10944.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.7 | 10944.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.5 | 10945.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.5 | 10945.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.4 | 10945.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.4 | 10945.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.4 | 10945.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.4 | 10945.0 |   36.79 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.3 | 10945.0 |    36.8 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+|  8614.3 | 10945.0 |    36.8 |        89.98 |         0.37 |       3.69 |         0.05 |        2.28 |
+
++ So, comparing with the constant pressure version:
+  + the Ha, [O III], and [C III] lines are almost identical
+    + Ha is relatively low in the cooling zone, but has a minor peak at the shock front (collisionally excited?)
+    + [O III] 5007 has a peak at 13,000 K but it is only 20% higher than the equilibrium value
+    + [O III] 4363 peaks at 27,000 K and is 10x higher than in equilibrium shell
+    + [C III]+C III] 1909 peaks at 30,000 and is 30x brighter than in equilibrium shell
+  + On the other hand [Ar IV] and [C IV] are quite different, due to the ionization parameter issue discussed above
+    + Constant pressure:
+      + [Ar IV] peaks at 44,000 K and is 4x equilibrium brightness
+      + [C IV] peaks post-shock T_1 (58,000 K) and is 4x equilibrium brightness
+    + Constant density
+      + [Ar IV] behaves similarly to [O III] 5007 - goes up slightly but then drops a lot in the hotter regions
+      + [C IV] is below equilibrium brightness at all hotter temperatures
+    + Obviously, the constant pressure model is more realistic for these lines
+***** Repeat but for a faster shock
++ This is a case that is not available for the constant pressure models because they crashed\
+
+#+call: line-emission-from-constant-density-shock(PREFIX="models/trap-shock-R175-shock-v150")
+
+#+RESULTS:
+|     T, K | Ne, pcc | H alpha | [O III] 5007 | [O III] 4363 | C III 1909 | [Ar IV] 4725 | [C IV] 1549 |
+|----------+---------+---------+--------------+--------------+------------+--------------+-------------|
+|   8613.4 | 10945.0 |    36.8 |        89.96 |         0.37 |       3.69 |         0.05 |        2.28 |
+| 211730.0 |   449.0 |    0.04 |         0.98 |         0.13 |       4.48 |         0.01 |         4.4 |
+| 448930.0 |   215.0 |     0.0 |         0.07 |         0.01 |       0.28 |          0.0 |         6.6 |
+| 455970.0 |   222.0 |     0.0 |          0.0 |          0.0 |       0.01 |          0.0 |        4.98 |
+| 402050.0 |   255.0 |     0.0 |          0.0 |          0.0 |        0.0 |          0.0 |        0.03 |
+| 332170.0 |   309.0 |     0.0 |          0.0 |          0.0 |        0.0 |          0.0 |        0.07 |
+| 269130.0 |   381.0 |     0.0 |          0.0 |          0.0 |        0.0 |          0.0 |        0.21 |
+| 218260.0 |   470.0 |     0.0 |         0.01 |          0.0 |        0.0 |          0.0 |        0.71 |
+| 177810.0 |   577.0 |    0.01 |         0.08 |         0.01 |       0.02 |         0.01 |         2.3 |
+| 145290.0 |   706.0 |    0.02 |         0.37 |         0.05 |       0.13 |         0.02 |        6.34 |
+| 118990.0 |   861.0 |    0.04 |         1.27 |         0.16 |       0.72 |         0.05 |       13.14 |
+|  97595.0 |  1048.0 |    0.07 |         3.26 |         0.39 |       2.74 |         0.11 |       19.17 |
+|  80213.0 |  1273.0 |    0.12 |          6.5 |         0.72 |       7.31 |         0.17 |       20.61 |
+|  66106.0 |  1541.0 |    0.21 |        10.77 |         1.11 |      14.68 |         0.23 |       19.47 |
+|  54566.0 |  1863.0 |    0.34 |        16.42 |         1.54 |      24.78 |         0.26 |        19.6 |
+|  45130.0 |  2246.0 |    0.53 |        24.56 |         2.05 |      37.64 |         0.25 |       21.78 |
+|  37435.0 |  2697.0 |    0.78 |        36.16 |         2.63 |      50.69 |         0.21 |       24.84 |
+|  31143.0 |  3227.0 |    1.15 |        51.28 |         3.15 |      62.36 |         0.16 |       27.59 |
+|  26010.0 |  3842.0 |    1.76 |        68.15 |         3.44 |      69.01 |         0.12 |       29.18 |
+|  21836.0 |  4545.0 |    2.75 |        84.65 |         3.38 |      67.74 |         0.09 |       28.64 |
+|  18468.0 |  5331.0 |     4.3 |        98.64 |         3.01 |      58.54 |         0.08 |       24.71 |
+|  15787.0 |  6182.0 |    6.61 |       108.02 |         2.45 |      44.22 |         0.07 |       17.27 |
+|  13694.0 |  7065.0 |    9.85 |       112.14 |         1.86 |      30.33 |         0.07 |        9.24 |
+|  12107.0 |  7927.0 |   13.97 |       111.71 |         1.35 |       19.8 |         0.07 |         4.2 |
+|  10945.0 |  8712.0 |    18.6 |       108.27 |         0.99 |      12.99 |         0.06 |        2.38 |
+|  10128.0 |  9372.0 |   23.19 |       103.89 |         0.74 |       8.98 |         0.06 |        2.03 |
+|   9575.3 |  9883.0 |    27.2 |        99.69 |         0.59 |        6.7 |         0.06 |        2.06 |
+|   9214.3 | 10253.0 |   30.35 |        96.39 |          0.5 |       5.43 |         0.05 |        2.13 |
+|   8984.0 | 10505.0 |   32.62 |        94.06 |         0.45 |        4.7 |         0.05 |        2.19 |
+|   8840.3 | 10670.0 |   34.16 |        92.52 |         0.42 |       4.29 |         0.05 |        2.22 |
+|   8751.7 | 10776.0 |   35.16 |        91.55 |          0.4 |       4.05 |         0.05 |        2.24 |
+|   8697.9 | 10841.0 |   35.79 |        90.94 |         0.38 |        3.9 |         0.05 |        2.26 |
+|   8665.1 | 10881.0 |   36.18 |        90.56 |         0.38 |       3.82 |         0.05 |        2.26 |
+|   8645.1 | 10906.0 |   36.42 |        90.33 |         0.37 |       3.77 |         0.05 |        2.27 |
+|   8633.0 | 10921.0 |   36.57 |        90.19 |         0.37 |       3.74 |         0.05 |        2.27 |
+|   8625.6 | 10930.0 |   36.66 |        90.11 |         0.37 |       3.72 |         0.05 |        2.27 |
+|   8621.2 | 10936.0 |   36.71 |        90.05 |         0.37 |       3.71 |         0.05 |        2.28 |
+|   8618.5 | 10939.0 |   36.74 |        90.02 |         0.37 |        3.7 |         0.05 |        2.28 |
+|   8616.8 | 10942.0 |   36.76 |        90.01 |         0.37 |        3.7 |         0.05 |        2.28 |
+|   8615.8 | 10943.0 |   36.78 |         90.0 |         0.37 |       3.69 |         0.05 |        2.28 |
+  
++ This is very similar to the slower shock for Ha and the [O III] lines
++ However, it is a bit different for [C III], [C IV], and [Ar IV]
+  + The [C III] has a lower peak by about 60%
+  + The [Ar IV] and [C IV] are brighter 
+  + This must be because the cooling zone is over-ionized because it is coming down from the other side of the cooling peak. 
+
+** Plot the cooling curve
+#+BEGIN_SRC python :results file :return pltfile
+  import os
+  import glob
+  import numpy as np
+  from matplotlib import pyplot as plt
+  import seaborn as sns
+  from astropy.table import Table
+  from pathlib import Path
+  import sys
+  sys.path.append('/Users/will/Work/CLOUDY/claudia/')
+  from claudia import CloudyModel
+
+  CloudyModel.skipsaves.append('continuum')
+  CloudyModel.skipsaves.remove(".tim")
+
+
+  pltfile = 'trap-multi-shock-coolcurve.pdf'
+  <<cool-read-func>>
+  t = get_cooltable()
+
+  datadir = Path("models")
+  ovr_files = list(datadir.glob('trap-shock-*.ovr'))
+  ovr_files.sort()
+  colors = sns.dark_palette('orange', len(ovr_files))
+  for ovr_file, c in reversed(list(zip(ovr_files, colors))):
+      prefix = ovr_file.stem
+      label = 'V = ' + str(prefix).split('-')[-1][1:] + ' km/s'
+      m = CloudyModel(str(datadir / prefix), niter=0)
+      NeNp = m.ovr.HII*m.ovr.hden*m.ovr.eden
+      imax = 0
+      plt.loglog(m.cool.Temp_K[imax:],
+                 m.cool.Ctot_ergcm3s[imax:]/NeNp[imax:],
+                 label=label, color=c)
+      imax = np.argmax(m.cool.Temp_K)
+      plt.loglog(m.cool.Temp_K[imax],
+                 m.cool.Ctot_ergcm3s[imax]/NeNp[imax],
+                 'o', color=c)
+      plt.loglog(m.cool.Temp_K[0],
+                 m.cool.Ctot_ergcm3s[0]/NeNp[0],
+                 's', color="r")
+  # plt.loglog(m.cool.Temp_K, m.cool.Htot_ergcm3s/NeNp)
+  plt.loglog(t['Temperature'], t['Lambda (erg cm3/s)'],
+             label='CIE', color=(0.3, 0.3, 0.3, 0.3), lw=5, zorder=-100)
+  plt.xlim(1e3, 1e8)
+  plt.ylim(1e-24, 1e-19)
+  plt.xlabel('Temperature, K')
+  plt.ylabel('Cooling, Λ(T), erg·cm³/s')
+  plt.legend(title='Shock velocity', ncol=2, fontsize="x-small")
+  sns.despine()
+  plt.tight_layout()
+  plt.savefig(pltfile)
+#+END_SRC
+
+#+RESULTS:
+[[file:trap-multi-shock-coolcurve.pdf]]
+
 
 ** Plotting the Cloudy shock models
 
 #+name: cooling-shock-table
 #+header: :var models=cooling-zone-models
-#+BEGIN_SRC python :results file :return pltfile :tangle trap-multi-shock-plot.py
+#+BEGIN_SRC python :return pltfile :tangle trap-multi-shock-plot.py :eval no
   import os
   from pathlib import Path
   import numpy as np
@@ -423,7 +1212,7 @@ trap-shock-R175-shock-v150 150.0 326000.0 2.3668956285297927e-11
       # Fractional cumulative emissivity of [O III]
       cumem = integrate.cumtrapz(em5007, s*dcool, initial=0.0)
       tot5007 = cumem[istop]
-      cumem = tot5007 - cumem
+      #cumem = tot5007 - cumem
       #cumem /= cumem[istop]
 
       T0 = np.average(T[:istop], weights=em5007[:istop])
@@ -442,8 +1231,8 @@ trap-shock-R175-shock-v150 150.0 326000.0 2.3668956285297927e-11
       axTagain.plot(ss, T, color=c)
       axNagain.plot(ss, den, color=c)
 
-      xx = dcool*(s[istop]-s)
-      ax5007_cum.plot(xx, em5007, label=tlabel, color=c)
+      xx = -dcool*(s[istop]-s) * 1000.0 # In mpc
+      ax5007_cum.plot(xx, em4363, label=tlabel, color=c)
       ax4363_cum.plot(xx, em4363/em5007, color=c)
       axLc_cum.plot(xx, Lcool, color=c)
       axO3frac_cum.plot(xx, em5007/Lcool, color=c)
@@ -501,16 +1290,22 @@ trap-shock-R175-shock-v150 150.0 326000.0 2.3668956285297927e-11
   ax5007_2.legend(ncol=2, fontsize='x-small', loc='upper left')
   fig_em2.savefig(pltfile_em2)
 
-  ax5007_cum.set_xlim(-1e-5, 6.5e-5)
+  ax5007_cum.set_xlim(-6.5e-2, 2e-2)
   ax5007_cum.set_ylim(0.0, None)
   ax4363_cum.set_ylim(0.0, None)
   axLc_cum.set_ylim(0.0, None)
-  axOcharge_cum.set_ylim(1.9, 3.1)
+  axOcharge_cum.set_ylim(1.5, 3.5)
   axs_cum.set_ylim(0.0, None)
-  axT_cum.set_ylim(0.0, 15e4)
-  ax5007_cum.legend(ncol=2, fontsize='x-small', loc='lower right')
-  axT_cum.set_xlabel("Distance from equilibrium shell")
-  ax5007_cum.set_ylabel('[O III] 5007')
+  axT_cum.set_ylim(5000, 5e5)
+  axT_cum.set_yscale("log")
+  fig_cum.legend(
+      ncol=2,
+      fontsize='x-small',
+      bbox_to_anchor=(1.0, 1.0),
+      # loc='lower right',
+  ).set_in_layout(False)
+  axT_cum.set_xlabel("Distance from equilibrium shell, mpc")
+  ax5007_cum.set_ylabel('[O III] 4363')
   ax4363_cum.set_ylabel('[O III] 4363 / 5007')
   axden_cum.set_ylabel('Density, pcc')
   axT_cum.set_ylabel('Temperature, K')
@@ -518,13 +1313,30 @@ trap-shock-R175-shock-v150 150.0 326000.0 2.3668956285297927e-11
   axO3frac_cum.set_ylabel("5007 cool frac")
   axOcharge_cum.set_ylabel('Mean O charge')
   axs_cum.set_ylabel('Cumulative 5007')
-  fig_cum.tight_layout()
+  fig_cum.tight_layout(rect=(0, 0, 1, 0.95))
   fig_cum.savefig(pltfile_emcum)
 
 #+END_SRC
 
-#+RESULTS: cooling-shock-table
-[[file:trap-multi-shock-distance.pdf]]
+#+begin_src sh :results verbatim
+  python trap-multi-shock-plot.py
+  open trap-multi-shock-emcum.pdf
+#+end_src
+
+#+RESULTS:
+#+begin_example
+13 8613.3 253410.0
+13 8613.3 135460.0
+13 8613.3 93382.0
+13 8613.3 58809.0
+13 8613.3 41081.0
+13 8613.3 32702.0
+13 8613.3 23827.0
+13 8613.3 19142.0
+13 8613.3 14401.0
+13 8613.3 11651.0
+#+end_example
+
 
 * Shock jump conditions
 Once again we copy the table from llobjects.org
