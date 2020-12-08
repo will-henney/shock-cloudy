@@ -115,12 +115,14 @@ for row, c in reversed(list(zip(models[:-1], colors))):
     # Fractional cumulative emissivity of [O III]
     cumem = integrate.cumtrapz(em5007, s*dcool, initial=0.0)
     tot5007 = cumem[istop]
-    #cumem = tot5007 - cumem
-    #cumem /= cumem[istop]
+    # Cumulative total cooling
+    cumcool = integrate.cumtrapz(Lcool, s*dcool, initial=0.0)
+    totcool = cumcool[istop]
+    cool5007frac = tot5007/totcool
 
     T0 = np.average(T[:istop], weights=em5007[:istop])
     t2 = np.average(((T[:istop]-T0)/T0)**2, weights=em5007[:istop])
-    tlabel = f"{label} $T = {T0/1e3:.1f}$ kK, $t^2 = {t2:.3f}$"
+    tlabel = f"{label} $T = {T0/1e3:.1f}$ kK, $t^2 = {t2:.3f}$, $f_{{5007}} = {cool5007frac:.3f}$"
 
     ax5007.plot(ss, em5007, color=c)
     ax6563.plot(ss, em6563, color=c)
