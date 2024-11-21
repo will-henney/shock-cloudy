@@ -10,6 +10,35 @@
 ** New re-purposing 2020 [2020-11-15 Sun]
 + Now I am going to use this to look at the HH shocks for the project with Tenerife
 + First thing to do is to repeat the same models that I ran for the WR case, except to use Orion abundances and include some slower shocks
+** Third re-purposing 2024 [2024-11-21 Thu]
+- And now I am going to use it in my turbulent t^2 project
+  - I will use it to calculate the contribution to t^2 from the "first shocks" after gas enters the H II region in a photoevaporation flow
+*** Summary of use of these models for estimating t^2
+- I want to calculate the total [O III] 4363 and 5007 emission from the cooling zone, for different shock velocities. As well as the recombination line emission.
+  - I do not think that the O II recombination line emissivities are saved in the models, but we could use the H alpha line as a proxy, since it has a similar temperature dependence (possibly with a correction for the O++ fraction, if that is significant)
+- Then use that to calculate a T_0(O++) and t^2(O++) for the cooling zone, using the analytic formulae in Peimbert & Peimbert (2013)
+  - That way, we are treating the Cloudy models, just like the observations
+  - Then we have to do the same, but with the dilution of the cooling zone emission by the surrounding H II region, which will make the t^2 much lower
+  - Note that there will be a contribution to the total t^2 from both the t^2 of the cooling zone and also the difference in T_0 between the cooling zone and the H II region
+  - But really we want to just calculate the total emission in each line, and then use the formulae to calculate the t^2
+  - [ ] Look and see whether I already wrote routines to do this in some project, maybe the Ring nebula
+  - A simple approximation would be to suppose that the cooling zones do not contribute at all to the recombination lines or to the nebular (4959,5007) lines, but only provide an additional source of the auroral (4363) line
+    - This is justified since the volume fraction of the cooling zones is so small (less than 0.01, probably) and the emissivity of nebular and recomb lines in cooling zone is similar or less than the equilibrium value
+    - So, we just need to calculate the \int j(4363) dz / \int j_0(4363) dz for the cooling zone, where j(4363) is the emissivity of the auroral line, and j_0(4363) is the emissivity of the auroral line in the equilibrium nebula
+    - The range of integration is the nominal cooling length that we are supposing
+      - d_cool = (0.0074 pc) n_100^-1 = (2.28e16 cm) n_100^-1
+*** Summary of the shock models
+- I am looking at this with fresh eyes [2024-11-21 Thu] to see if the existing models are sufficient, or if I need to run some more
+- The existing models are all targeting a post-cooling density of 1e4 pcc, which is higher than the fiducial value of 100 in the turbulent t^2 project. But this will not matter so long as
+  1. We are below the critical densities of the lines we are interested in (more than 1e5 for [O III] lines, so this is fine)
+  2. We have the right ionization parameter and/or our lines are not sensitive to the ionization parameter. Both of these are true.
+     - The former because the nominal ionization parameter is 0.0165, which is very close to our fiducial value of 0.01
+     - The latter because O++ is the dominant ionization stage over a range of ionization parameters, so we are fine so long as we do not go outside of that range
+- The main differences between the different shock velocities is that the faster shocks have slower exhaust velocities, which means that the [O III] emitting part of the cooling zone is thinner (since the cooling time is the same)
+- A secondary difference is that the faster shocks have higher final densities, by a factor of two
+  - I do not understand why this is, since I thought that we were aiming for a post-cooling density of 1e4 pcc in all cases
+  - It all seems to be part of the post-processing step, so I would not need to have to run the models again
+  - [ ] It must have something to do with the approximations in my dynamic model for the subsonic flow in the cooling zone - need to check this
 * Fake the cooling zone via Cloudy time-dependent models 
 :PROPERTIES:
 :header-args: :noweb yes
