@@ -39,6 +39,51 @@
   - I do not understand why this is, since I thought that we were aiming for a post-cooling density of 1e4 pcc in all cases
   - It all seems to be part of the post-processing step, so I would not need to have to run the models again
   - [ ] It must have something to do with the approximations in my dynamic model for the subsonic flow in the cooling zone - need to check this
+* Analytic models of slower shocks
+:LOGBOOK:
+- Note taken on [2024-11-29 Fri 08:53] \\
+  This is in support of my turbulent t2 project [[file:../turb-t2-paper/]]
+:END:
+- For shocks with velocities less than 75 km/s, the trajectory on the (log T)-(log \Lambda) plot is a straight line, up and down, so we can assume a single power law for the cooling function
+- This corresponds to immediate post-shock T_1 up to 1e5 K
+- For velocities up to 50 km/s, this follows the equilibrium cooling curve
+- For 50 to 75 km/s, it is above the equilibrium curve due to under-ionization of the gas compared to the CIE state.
+  - The heating time is \ell_visc / u_1, where \ell_visc \approx \lambda_mfp is the viscous shock thickness, and u_1 is the post-shock velocity, which is very short
+  - The collisional ionization time is 1 / n_1 C(T_1), where C(T_1) is the collisional ionization rate
+    - For our purposes, this is only important when T_1 is high enough that the CIE ionization state has significant O^+3 fraction
+    - [X] Although, if the ionization time is longer than the cooling time, then we may not need to worry about the reduction in the O^+2 fraction - we need to look the data in the output of the Cloudy models
+      - [X] Yes, it turns out that only above 60 km/s do we get time for the O^+3 to form, see the  "mean O charge" panel in [[file:trap-multi-shock-emcum.pdf]].
+      - We should make an analytic calculation to show that this is the case. 
+      - For the 75 and 106 km/s models, you can see the O^+3 fraction initially increasing with distance, but then falls again because the T is dropping so fast.
+        - We can call this the NEI/NER part of the cooling zone - initially under-ionized (NEI), then over-ionized (NER), then back to equilibrium
+      - But even for these models, we are back down to mostly O^+2 before getting to the part that emits most of the [O III]. This is simply because the density is so much lower in the NEI zone, due to the approximate pressure equilibrium and high T.
+      - The 60 km/s and slower models /could/ have an NEI/NER zone, but the O ionization does not have any time to react while the T goes up and down again, so the O^+2 fraction is frozen in at a high value
+        - But note that CIE ratios are O^+3/O^+2 = 0.1 at T= 80 kK, 0.2 at 90 kK and 0.5 at 110 kK and 0.9 at 170 kK
+        - Whereas T_1 is (250, 140, 90, 65) kK for V = (105, 75, 61, 48) km/s
+        - So it is only the 60 km/s shock where the frozen ion fraction occurs. For 50 km/s and lower, even the CIE ionization fraction of O^+3 is negligible
+- We want to work out the DEM, \phi(T) for n_e n(O^+2), so we can use that in conjunction with the \epsilon(T) emissivity functions for each line and calculate the line ratios, and hence the formal t^2
+  - Given what we have shown above, we just need to calculate \phi(T) for n^2, assuming a power-law cooling function
+  - And we should normalize this to the emission measure that we would have for a PIE layer of density n_2 and thickness equal to the cooling length. That way, we can use it in the calculation of the global t^2 of the nebula
+  - Note that the cooling length is roughly independent of the shock velocity,
+    up to a certain maximum that is the same as the range of validity of the power-law cooling
+    - This is discussed in [[file:../turb-t2-paper/notes/turbulent-dissipation.org]]
+    - And in more detail in [[file:../Orion-HH/shock-vs-shell/shock-vs-shell.org][the Orion-HH project]]
+    - The best description seems to be in the pdf/latex file, which did get incorporated into the published paper
+    - However, I cannot find where I calculated the Taylor expansion in (M - 1), so we need to do that again - It sounds very similar to what I want to do for the \phi(T) versus M calculation
+  - On the other hand, the line emission layer is not as wide as the entire cooling length for the higher velocity shocks:
+    - For V <= 28 km/s, the 4363 emission is highest at the shock, monotonically declining in the cooling zone
+    - For higher velocities, there is a peak in 4363 at an intermediate point (crossover of falling T and rising n).
+    - For instance, for V = 48 km/s, the peak is half way through the cooling zone
+    - Even more so for 5007: peak is half way through cooling zone for V = 34 km/s. On the other hand, the 5007 emissivity des not vary so much as 4363
+** Isobaric models for the cooling zone
+- This is a first approximation that is good for high Mach numbers, but not so good for the lower velocity shocks. We can improve on it later
+- The first time I did this was in the [[file:../JaneWR/jane-wr-models.org][JaneWR project]], where I calculated the cooling for a power-law cooling function, but I did not include the heating term. I should do that now.
+  - From the Eduardo HH project, I have the following expression for the cooling length
+    - d_cool = (10 / (a - b)) (a_s k T_1 / n_2 \Lambda_0), assuming a power-law cooling function \Lambda = \Lambda_0 T^a and heating \Gamma = \Gamma_0 T^b with \Gamma_0 = \Lambda_0 being the equilibrium value.
+    - Note that this is with the *teleological normalization* to the final density. 
+  - Assuming constant pressure and full ionization in the cooing zone, we have that
+    - v / v_1 = T / T_1
+    - T  = T_1(1 - 1.5 \int ())
 * Fake the cooling zone via Cloudy time-dependent models 
 :PROPERTIES:
 :header-args: :noweb yes
@@ -277,7 +322,7 @@ So, now I am going to do the same except choosing a set of velocities, instead o
   <<template-trapezium-radiation>>
 #+end_src
 
-The ~reset~ option to the ~constant pressure~ command should ensure that the pressure is kept the same from iteration to iteration, instaed of the density.
+The ~reset~ option to the ~constant pressure~ command should ensure that the pressure is kept the same from iteration to iteration, instead of the density.
 #+name: template-constant-pressure-shock-model
 #+BEGIN_SRC python :results output silent
   cloudy_input = """title Non-equilibrium shock heat/cool curve (Orion HH)
